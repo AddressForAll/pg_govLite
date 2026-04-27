@@ -25,6 +25,9 @@ CREATE or replace FUNCTION array_distinct(
     )
  ) t(x)
 $f$ language SQL strict IMMUTABLE;
+COMMENT ON FUNCTION array_distinct
+  IS 'Reduce array to its DISTINCT itens, when some duplicated, with optional (default) NULL removal.'
+;
 
 
 CREATE or replace FUNCTION array_distinct_sort (
@@ -44,6 +47,9 @@ CREATE or replace FUNCTION array_distinct_sort (
    )
  ) t(x)
 $f$ language SQL strict IMMUTABLE;
+COMMENT ON FUNCTION array_distinct_sort
+  IS 'Reduce array to its DISTINCT itens, and sort it; with optional (default) NULL removal.'
+;
 
 CREATE or replace FUNCTION jsonb_object_keys_asarray(_js jsonb)
   RETURNS text[]
@@ -52,17 +58,17 @@ BEGIN ATOMIC
   SELECT  array_agg(x) FROM jsonb_object_keys($1) t(x);
 END;
 COMMENT ON FUNCTION jsonb_object_keys_asarray(jsonb)
-  IS 'JSONB_keys-to-SQL_text_array optimized convertion.';
+  IS 'Cast native jsonb_object_keys() to SQL-array_of_text.';
 
 CREATE or replace FUNCTION jsonb_array_to_text_array(_js jsonb, apply_sort boolean DEFAULT false)
   RETURNS text[]
   LANGUAGE sql IMMUTABLE PARALLEL SAFE
 BEGIN ATOMIC
-  SELECT CASE WHEN $1 IS NULL THEN NULL WHEN apply_sort THEN array_distinct_sort(x) ELSE x END 
+  SELECT CASE WHEN $1 IS NULL THEN NULL WHEN apply_sort THEN array_distinct_sort(x) ELSE x END
   FROM (  SELECT CASE WHEN $1 IS NULL THEN NULL ELSE ARRAY(SELECT jsonb_array_elements_text($1)) END ) t(x);
 END;
 COMMENT ON FUNCTION jsonb_array_to_text_array(jsonb,boolean)
-  IS 'JSONB-to-SQL_text arrays optimized convertion, for pg14+. See https://dba.stackexchange.com/a/54289/90651';
+  IS 'Cast JSONB-array to SQL-array_of_text, applying array_distinct_sort() when flagged. For pg14+. See https://dba.stackexchange.com/a/54289/90651';
 
 -- -- -- -- -- -- -- -- -- -- --
 --- LIB Helper functions:
@@ -111,4 +117,3 @@ ORDER BY schema_name, table_size DESC;
 $f$ language SQL;
 
 -- SELECT * FROM lib.rel_disk_usage('{dpvd24,fw_bronze}'::text[]);
-
