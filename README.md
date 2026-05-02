@@ -2,6 +2,21 @@
 
 ![](assets/layers.png)
 
+## Objectives
+Adopt [Convention over Configuration](https://en.wikipedia.org/wiki/Convention_over_configuration) (CoC) principle for the basic metadata definition and maintenance tasks:
+
+* Semantic tags and control tags;
+* Medallion control of data objects (datasets and its part-whole hierarchy), like input/output and intermediary datasets;
+* Data tier controls the identity-service and activation of data-quality services. See also "relevance driver" (business, regulatory, analytics, or operational)
+* To generate human-readable structures System Catalog as standard structured content, for documentation.
+
+All modules are external implementations, for example data quality is DQX, Secure control is external ABAC, etc. The pg_govLite is a central orchestration of modules by tags and triggers.
+
+## Documentation
+See .. PDFs. UML class:
+
+![](assets/pg_govLite-diag1v1.png)
+
 ## Install or test
 
 This project foresees installation on Linux, using `make` command.
