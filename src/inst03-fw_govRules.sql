@@ -1,7 +1,5 @@
 
 
-/* must be reused on trigger
-
 CREATE OR REPLACE FUNCTION gvlt.medallion_upsert(
     p_schema_name text,
     p_info jsonb DEFAULT NULL
@@ -21,18 +19,20 @@ BEGIN
             PERFORM lib.dynamic_execute('CREATE SCHEMA '|| p_schema_name);
     END IF;
 
-    INSERT INTO gvlt.medallion (mdl_key, f_table_schema, info, is_active)
-    VALUES (substring(v_mtype, 1, 1), lower(trim(p_schema_name)), p_info, true)
-    ON CONFLICT (f_table_schema)
+    INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active, ctrl_config)
+    VALUES (m_type,  lower(trim(p_schema_name)), true, p_info)
+    ON CONFLICT (obj_name)
     DO UPDATE SET
-        info = COALESCE(EXCLUDED.info, gvlt.medallion.info),
         is_active = true,
-        mdl_key = EXCLUDED.mdl_key;
+        ctrl_config = COALESCE(EXCLUDED.ctrl_config, gvlt.tag_obj.ctrl_config),
+        tag_name = EXCLUDED.tag_name
+    ;
+    -- RAISE NOTICE 'pg_govLite: Schema % registrado como %!', obj.object_identity, m_type;
 
     RETURN 'SUCESSO: Schema ' || p_schema_name || ' (tipo ' || v_mtype || ') atualizado no catálogo.';
 END;
 $f$ LANGUAGE plpgsql;
-*/
+
 --------------
 ---------------
 

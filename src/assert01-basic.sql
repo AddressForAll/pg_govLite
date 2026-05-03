@@ -19,8 +19,13 @@ ASSERT array_distinct_sort('{NULL}'::int[]) IS NULL,
   'Error2: public array_distinct_sort() not working';
 ASSERT array_distinct_sort( '{NULL}'::int[], false ) = '{NULL}'::int[],
   'Error3: public array_distinct_sort() not working';
-
+ASSERT jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}')='{Y,x,z}'::text[],
+  'Error: public jsonb_object_keys_asarray() not working';
 END $do$;
+
+---------------------
+SELECT E'--- No messages = No error ---\n--- BASIC ASSERTS FINESHED ---' final_message;
+
 
 /* old asserts
 DO $$

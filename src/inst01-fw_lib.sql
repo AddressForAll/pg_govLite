@@ -74,6 +74,9 @@ END;
 COMMENT ON FUNCTION jsonb_array_to_text_array(jsonb,boolean)
   IS 'Cast JSONB-array to SQL-array_of_text, applying array_distinct_sort() when flagged. For pg14+. See https://dba.stackexchange.com/a/54289/90651';
 
+SELECT jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}');
+
+jsonb_array_to_text_array
 -- -- -- -- -- -- -- -- -- -- --
 --- LIB Helper functions:
 DROP SCHEMA IF EXISTS lib CASCADE;
@@ -154,3 +157,6 @@ BEGIN ATOMIC
   SELECT ('{s,r,c}'::"char"[])[1+regexp_count(p_obj_name,'\.')];
   -- '{"s":"schema","r":"relation","c":"column"}'::jsonb
 END;
+
+---------------------
+SELECT '--- LIB INSTALL FINESHED ---' final_message;

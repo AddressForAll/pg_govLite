@@ -247,13 +247,27 @@ CREATE VIEW gvlt.vw01_tag_obj AS
   SELECT t.is_active,
          lib.object_getype(t.obj_name) otype, -- s,r or c
          t.obj_name,
-         t.tag_name,
-         g.tag_desc,
-         g.rdf_id
+         g.role,
+         array_agg(t.tag_name) as tags
   FROM gvlt.tag_obj t
   LEFT JOIN gvlt.tag g
   ON g.tag_name=t.tag_name
-  ORDER BY 1, 2, 3
+  GROUP BY 1,2,3,4
+  ORDER BY 1,2,3,4
+;
+
+-- Isolating active Semantic tags (STAGs) and Governed tags (GTAGs):
+
+CREATE VIEW gvlt.vw02_stag_obj_active AS
+  SELECT otype, obj_name, tags
+  FROM gvlt.vw01_tag_obj
+  WHERE is_active AND role='semantic'
+;
+
+CREATE VIEW gvlt.vw03_gtag_obj_active AS
+  SELECT otype, obj_name, role, tags
+  FROM gvlt.vw01_tag_obj
+  WHERE is_active AND role!='semantic'
 ;
 
 --------------------------
@@ -340,6 +354,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- tag-objeto medalhão.
+
+CREATE VIEW gvlt.vw01_medallion AS
+  SELECT o.*, t.tag_desc
+  FROM gvlt.tag_obj o INNER JOIN gvlt.tag t
+    ON o.tag_name=t.tag_name
+  WHERE t.is_active AND o.is_active AND t.role='medallion' AND lib.object_getype(o.obj_name)='s'
+;
+
 -- ===============================================================
 -- View de apoio: glossario de tags aplicadas no catalogo de objetos.
 
@@ -358,3 +381,5 @@ LEFT JOIN gvlt.tag g
        ON lower(g.tag_name) = lower((regexp_split_to_array(e.full_tag, '[\.:]'))[1])
 ORDER BY e.obj_name, e.full_tag;
 */
+
+SELECT '--- CORE INSTALL FINESHED ---' final_message;
