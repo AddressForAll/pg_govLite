@@ -76,7 +76,6 @@ COMMENT ON FUNCTION jsonb_array_to_text_array(jsonb,boolean)
 
 SELECT jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}');
 
-jsonb_array_to_text_array
 -- -- -- -- -- -- -- -- -- -- --
 --- LIB Helper functions:
 DROP SCHEMA IF EXISTS lib CASCADE;
