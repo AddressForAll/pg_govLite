@@ -6,26 +6,27 @@ CREATE OR REPLACE FUNCTION gvlt.medallion_upsert(
 ) RETURNS text AS $f$
 DECLARE
     v_mtype text;
+    v_schema_name text;
 BEGIN
+    v_schema_name := lower(trim(p_schema_name));
     -- Validação do nome via regex/lógica medalhão já existente
     -- v_mtype := gvlt.medallion_schema_getype(p_schema_name);
-    v_mtype := gvlt.schema_name_validate(p_schema_name);  -- null ou '!' erro ou mtype.
+    v_mtype := gvlt.schema_name_validate(v_schema_name);  -- null ou '!' erro ou mtype.
     IF v_mtype IS NULL THEN
         RETURN 'ERRO: O nome do schema ' || p_schema_name || ' não segue o padrão medalhão (bronze/silver/gold).';
-    ELSEIF v_mtype='!' THEN
-        RETURN 'ERRO: O nome do schema ' || p_schema_name || ' requer registro da tag '|| array_to_string( gvlt.schema_name_nontag(obj.object_identity) , ',' ) ||'.';
+    ELSIF v_mtype='!' THEN
+        RETURN 'ERRO: O nome do schema ' || p_schema_name || ' requer registro da tag '|| array_to_string( gvlt.schema_name_nontag(v_schema_name) , ',' ) ||'.';
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = p_schema_name) THEN
-            PERFORM lib.dynamic_execute('CREATE SCHEMA '|| p_schema_name);
+    IF NOT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = v_schema_name) THEN
+            PERFORM lib.dynamic_execute(format('CREATE SCHEMA %I', v_schema_name));
     END IF;
 
     INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active, ctrl_config)
-    VALUES (m_type,  lower(trim(p_schema_name)), true, p_info)
-    ON CONFLICT (obj_name)
+    VALUES (v_mtype, v_schema_name, true, p_info)
+    ON CONFLICT (obj_name, tag_name)
     DO UPDATE SET
         is_active = true,
-        ctrl_config = COALESCE(EXCLUDED.ctrl_config, gvlt.tag_obj.ctrl_config),
-        tag_name = EXCLUDED.tag_name
+        ctrl_config = COALESCE(EXCLUDED.ctrl_config, gvlt.tag_obj.ctrl_config)
     ;
     -- RAISE NOTICE 'pg_govLite: Schema % registrado como %!', obj.object_identity, m_type;
 
@@ -51,8 +52,8 @@ BEGIN
           IF m_type!='!' THEN  -- Bronze/Silver/Gold
             INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active)
             VALUES (m_type,  obj.object_identity, true)
-            ON CONFLICT (obj_name)
-            DO UPDATE SET is_active = true, tag_name = EXCLUDED.tag_name;
+            ON CONFLICT (obj_name, tag_name)
+            DO UPDATE SET is_active = true;
             RAISE NOTICE 'pg_govLite: Schema % registrado como %!', obj.object_identity, m_type;
           ELSE
             RAISE EXCEPTION 'pg_govLite ERROR, schema % candidato a medalhão mas com tags ausentes: %',

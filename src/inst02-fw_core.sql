@@ -342,13 +342,11 @@ BEGIN
         RETURN false;
     END IF;
 
-    INSERT INTO gvlt.tag_obj (obj_name, tags)
-    VALUES (v_obj_name, v_normalized_tags)
-    ON CONFLICT (obj_name)
+    INSERT INTO gvlt.tag_obj (obj_name, tag_name)
+    SELECT v_obj_name, unnest(v_normalized_tags)
+    ON CONFLICT (obj_name, tag_name)
     DO UPDATE
-       SET tags = gvlt.govtags_normalize(
-           COALESCE(gvlt.tag_obj.tags, '{}'::text[]) || EXCLUDED.tags
-       );
+       SET is_active = true;
 
     RETURN true;
 END;
