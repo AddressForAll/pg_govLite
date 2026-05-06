@@ -7,7 +7,7 @@ CREATE SCHEMA q_bronze;  CREATE SCHEMA q_silver;   CREATE SCHEMA q_gold;
 -- create schema sem:
 CREATE SCHEMA q_bronze_q; CREATE SCHEMA q_prata; CREATE SCHEMA q_gold_q;
 
-SELECT * FROM gvlt.medallion; -- listando
+SELECT * FROM gvlt.vw01_medallion; -- listando
 
 -- create table com:
 CREATE TABLE q_bronze.t (x int);  CREATE TABLE q_silver.t (x int);   CREATE TABLE q_gold.t (x int);
