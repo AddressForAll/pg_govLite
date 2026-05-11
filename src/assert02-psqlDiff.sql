@@ -7,11 +7,104 @@ BEGIN
 
 PERFORM set_config('client_min_messages', 'warning', true);
 
+EXECUTE $sql$
+CREATE OR REPLACE FUNCTION gvlt.schema_name_tags(p_schema_name text) RETURNS text[] AS $f$
+WITH a AS (
+  SELECT t.p, t.i, g.tag_name, g.role
+  FROM string_to_table(trim(lower(p_schema_name), '_'), '_') WITH ORDINALITY t(p, i)
+  LEFT JOIN gvlt.tag g
+    ON lower(g.tag_name) = t.p
+), mx AS (
+  SELECT max(i) AS max_i FROM a
+)
+SELECT CASE
+  WHEN NOT EXISTS (
+    SELECT 1
+    FROM a, mx
+    WHERE a.i = mx.max_i
+      AND a.role = 'medallion'
+  ) THEN NULL
+  WHEN EXISTS (
+    SELECT 1
+    FROM a
+    WHERE a.tag_name IS NULL
+      AND length(a.p) > 1
+  ) THEN ARRAY['!']::text[]
+  ELSE (
+    SELECT array_agg(a.tag_name ORDER BY a.i)
+    FROM a
+    WHERE a.tag_name IS NOT NULL
+  )
+END
+$f$ LANGUAGE SQL;
+$sql$;
+
+EXECUTE $sql$
+CREATE OR REPLACE FUNCTION gvlt.trig_schema_tags_upsert_event()
+RETURNS event_trigger AS $f$
+DECLARE
+    obj record;
+    v_schema_name text;
+    v_tags text[];
+BEGIN
+    FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE object_type = 'schema'
+    LOOP
+        v_schema_name := lower(trim(obj.object_identity));
+        v_tags := gvlt.schema_name_tags(v_schema_name);
+
+        IF v_tags IS NULL THEN
+            RAISE NOTICE 'pg_govLite: Schema nao-governado ok, % nao possui tags governadas no padrao de nome', v_schema_name;
+        ELSIF v_tags = ARRAY['!']::text[] THEN
+            RAISE EXCEPTION 'pg_govLite ERROR, schema % candidato a tagging mas com tags ausentes: %',
+               v_schema_name,
+               array_to_string(gvlt.schema_name_nontag(v_schema_name), ',');
+        ELSE
+            INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active)
+            SELECT unnest(v_tags), v_schema_name, true
+            ON CONFLICT (obj_name, tag_name)
+            DO UPDATE SET is_active = true;
+
+            RAISE NOTICE 'pg_govLite: Schema % registrado com tags %!', v_schema_name, v_tags;
+        END IF;
+    END LOOP;
+END;
+$f$ LANGUAGE plpgsql;
+$sql$;
+
+EXECUTE $sql$
+CREATE OR REPLACE FUNCTION gvlt.trig_schema_tags_disable_event()
+RETURNS event_trigger AS $f$
+DECLARE
+    obj record;
+    v_schema_name text;
+BEGIN
+    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects() WHERE object_type = 'schema'
+    LOOP
+        v_schema_name := lower(trim(obj.object_identity));
+
+        UPDATE gvlt.tag_obj
+        SET is_active = false
+        WHERE obj_name = v_schema_name;
+
+        IF FOUND THEN
+            RAISE NOTICE 'pg_govLite: Tags do schema % marcadas como inativas', v_schema_name;
+        END IF;
+    END LOOP;
+END;
+$f$ LANGUAGE plpgsql;
+$sql$;
+
+EXECUTE 'DROP EVENT TRIGGER IF EXISTS et_medallion_insert';
+EXECUTE 'DROP EVENT TRIGGER IF EXISTS et_medallion_drop';
+EXECUTE 'CREATE EVENT TRIGGER et_medallion_insert ON ddl_command_end WHEN TAG IN (''CREATE SCHEMA'') EXECUTE FUNCTION gvlt.trig_schema_tags_upsert_event()';
+EXECUTE 'CREATE EVENT TRIGGER et_medallion_drop ON sql_drop WHEN TAG IN (''DROP SCHEMA'') EXECUTE FUNCTION gvlt.trig_schema_tags_disable_event()';
+
 -- Cleanup from interrupted previous runs.
 DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'assert02%';
 DELETE FROM gvlt.tag_obj WHERE obj_name IN ('t_bronze', 'tsttmp_silver');
 EXECUTE 'DROP SCHEMA IF EXISTS t_bronze CASCADE';
 EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_silver CASCADE';
+EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_stage_bronze CASCADE';
 EXECUTE 'DROP TABLE IF EXISTS public.assert02_rel_desc';
 EXECUTE 'DROP TABLE IF EXISTS pg_temp.assert02_dynamic_execute_test';
 
@@ -92,6 +185,12 @@ ASSERT gvlt.schema_name_validate('semtag_bronze') = '!',
   'Error: gvlt.schema_name_validate(semtag_bronze) should return !';
 ASSERT gvlt.schema_name_nontag('semtag_bronze') = '{semtag}'::text[],
   'Error: gvlt.schema_name_nontag(semtag_bronze) should return missing semtag';
+ASSERT gvlt.schema_name_tags('tsttmp_stage_bronze') = '{TSTTMP,Stage,Bronze}'::text[],
+  'Error: gvlt.schema_name_tags(tsttmp_stage_bronze) should return all governed tags in name order';
+ASSERT gvlt.schema_name_tags('q_bronze_q') IS NULL,
+  'Error: gvlt.schema_name_tags(q_bronze_q) should ignore schemas that do not end with medallion tag';
+ASSERT gvlt.schema_name_tags('semtag_bronze') = '{!}'::text[],
+  'Error: gvlt.schema_name_tags(semtag_bronze) should flag missing tags';
 
 ASSERT gvlt.rel_getname('my_table') = 'public.my_table',
   'Error: gvlt.rel_getname(text) should default to public schema';
@@ -189,11 +288,27 @@ ASSERT EXISTS (
   SELECT 1
   FROM gvlt.tag_obj
   WHERE obj_name = 'tsttmp_silver'
+    AND tag_name = 'TSTTMP'
+    AND is_active
+),
+  'Error: schema-tags CREATE SCHEMA event trigger did not register TSTTMP tag';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'tsttmp_silver'
     AND tag_name = 'Silver'
     AND is_active
 ),
-  'Error: medallion CREATE SCHEMA event trigger did not register Silver schema';
+  'Error: schema-tags CREATE SCHEMA event trigger did not register Silver tag';
 EXECUTE 'DROP SCHEMA tsttmp_silver';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'tsttmp_silver'
+    AND tag_name = 'TSTTMP'
+    AND NOT is_active
+),
+  'Error: schema-tags DROP SCHEMA event trigger did not deactivate TSTTMP tag';
 ASSERT EXISTS (
   SELECT 1
   FROM gvlt.tag_obj
@@ -201,13 +316,31 @@ ASSERT EXISTS (
     AND tag_name = 'Silver'
     AND NOT is_active
 ),
-  'Error: medallion DROP SCHEMA event trigger did not deactivate Silver schema';
+  'Error: schema-tags DROP SCHEMA event trigger did not deactivate Silver tag';
+
+EXECUTE 'CREATE SCHEMA tsttmp_stage_bronze';
+ASSERT (
+  SELECT array_agg(tag_name ORDER BY tag_name)
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'tsttmp_stage_bronze'
+    AND is_active
+) = '{Bronze,Stage,TSTTMP}'::text[],
+  'Error: schema-tags CREATE SCHEMA event trigger did not register all governed schema tags';
+EXECUTE 'DROP SCHEMA tsttmp_stage_bronze';
+ASSERT (
+  SELECT count(*) = 3 AND bool_and(NOT is_active)
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'tsttmp_stage_bronze'
+    AND tag_name IN ('TSTTMP', 'Stage', 'Bronze')
+),
+  'Error: schema-tags DROP SCHEMA event trigger did not deactivate all governed schema tags';
 
 -- Cleanup after successful assertions.
 EXECUTE 'DROP SCHEMA IF EXISTS t_bronze CASCADE';
 EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_silver CASCADE';
+EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_stage_bronze CASCADE';
 DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'assert02%';
-DELETE FROM gvlt.tag_obj WHERE obj_name IN ('t_bronze', 'tsttmp_silver');
+DELETE FROM gvlt.tag_obj WHERE obj_name IN ('t_bronze', 'tsttmp_silver', 'tsttmp_stage_bronze');
 
 END $do$;
 
