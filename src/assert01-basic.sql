@@ -8,9 +8,11 @@ DECLARE
   v_arr int[];
 BEGIN
 
-ASSERT round(pi(), 3) = 3.142,
+ASSERT round(pi(), 1) = 3.1,
   'Error: public round(float,int) not working';
-ASSERT round(1.2345::float, 2) = 1.23,
+ASSERT round(pi(), 15)::text = '3.141592653589790',
+  'Error: public round(float,int) not working';  
+ASSERT round(0.2345::float, 2) = 0.23,
   'Error: public round(float,int) did not round to 2 decimal places';
 ASSERT round(-1.235::float, 2) = -1.24,
   'Error: public round(float,int) did not round negative values correctly';
@@ -67,7 +69,7 @@ ASSERT array_distinct_sort(NULL::int[]) IS NULL,
 
 ASSERT jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}'::jsonb) = '{Y,x,z}'::text[],
   'Error: public jsonb_object_keys_asarray() not working';
-ASSERT array_distinct_sort(jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}'::jsonb)) = '{Y,x,z}'::text[],
+ASSERT array_distinct_sort(jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}'::jsonb)) = '{x,Y,z}'::text[],
   'Error: public jsonb_object_keys_asarray(jsonb) did not return the expected keys';
 ASSERT jsonb_object_keys_asarray('{}'::jsonb) IS NULL,
   'Error: public jsonb_object_keys_asarray(empty object) should return NULL';

@@ -11,8 +11,8 @@ PORT =
 DBUSER =
 DBPASS =
 DBNAME =
-
 TRASHDB = dbtest_trash
+TRASHDB_VERS = pg16-psql17
 
 PSQL_ENV = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)')
 PSQL_CMD = $(PSQL_ENV) $(PSQL) $(PSQL_FLAGS) $(DBURL)
@@ -80,4 +80,6 @@ dropDbTest:
 	done
 	@echo ">>> Executing psql-text-diff asserts on fresh $(TRASHDB):"
 	$(PSQL_CMD2) -f ./src/assert02-psqlDiff.sql > /tmp/trash.txt 2>&1
-	diff -w -b /tmp/trash.txt  ./assets/assert02-res-psqlDiff.txt
+	diff -w -b /tmp/trash.txt  "./assets/assert02-res-psqlDiff.$(TRASHDB_VERS).txt"
+	@echo " ... if no diff, rm /tmp/trash.txt"
+	@echo

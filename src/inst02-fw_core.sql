@@ -111,11 +111,12 @@ INSERT INTO gvlt.tag (tag_name,role,tag_desc,rdf_id,ctrl_config) VALUES -- Exemp
 -- Dados Silver e Gold podem receber isProduct, Bronze não (basta criar view da tabela Bronze na Prata se for equivalente). Ideal apenas Gold.
 
 CREATE VIEW gvlt.vw01_tag AS
-  SELECT g.*, r.role_desc,
-    CASE WHEN g.role='semantic' AND g.rdf_id IS NULL THEN 'error' ELSE 'ok' END AS error
+  SELECT g.*, r.role_desc
+    --, CASE WHEN g.role='semantic' AND g.rdf_id IS NULL THEN 'error' ELSE 'ok' END AS error
   FROM (
     SELECT role, tag_name, rdf_id,
-           CASE WHEN tag_name ~ '\.' THEN 'hierarchical' ELSE 'simple' END || CASE WHEN info->'tag_values' IS NULL THEN '' ELSE ' valued' END as tag_type
+           CASE WHEN tag_name ~ '\.' THEN 'hierarchical' ELSE 'simple' END
+           || CASE WHEN tag_name ~ ':' THEN ' valued' ELSE '' END as tag_type
     FROM gvlt.tag
   ) g
   INNER JOIN gvlt.role_config r
@@ -273,7 +274,7 @@ CREATE VIEW gvlt.vw03_gtag_obj_active AS
 --------------------------
 -- Other VIEWs and functions.
 
-CREATE VIEW gvlt.vw0_relations AS
+CREATE VIEW gvlt.vw01_relations AS
   SELECT
       n.nspname AS schema_name,
       c.relname AS relation_name,

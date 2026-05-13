@@ -1,4 +1,11 @@
--- Tests after install fw in an empty database
+--
+-- Tests and outputs with make dropDbTest
+--
+
+SELECT *, CASE WHEN role='semantic' AND rdf_id IS NULL THEN 'error' ELSE 'ok' END AS error
+FROM gvlt.vw01_tag
+;
+
 
 DO $do$
 DECLARE
