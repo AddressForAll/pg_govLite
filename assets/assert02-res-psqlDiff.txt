@@ -1,3 +1,4 @@
+DO
          tag          |     ctrl     |  values   |   tag_type    
 ----------------------+--------------+-----------+---------------
  bronze               | medallion    |           | simple
@@ -21,17 +22,17 @@
  vatID                | RDF          |           | simple
 (19 rows)
 
-psql:src/assert02-psqlDiff.sql:6: NOTICE:  Framework AFA: Schema q_bronze registrado como bronze!
+psql:src/assert02-psqlDiff.sql:350: NOTICE:  pg_govLite: Schema q_bronze registrado com tags {Bronze}!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:6: NOTICE:  Framework AFA: Schema q_silver registrado como silver!
+psql:src/assert02-psqlDiff.sql:350: NOTICE:  pg_govLite: Schema q_silver registrado com tags {Silver}!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:6: NOTICE:  Framework AFA: Schema q_gold registrado como gold!
+psql:src/assert02-psqlDiff.sql:350: NOTICE:  pg_govLite: Schema q_gold registrado com tags {Gold}!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:8: NOTICE:  Schema não-governado ok, q_bronze_q não é medalhão
+psql:src/assert02-psqlDiff.sql:352: NOTICE:  pg_govLite: Schema nao-governado ok, q_bronze_q nao possui tags governadas no padrao de nome
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:8: NOTICE:  Schema não-governado ok, q_prata não é medalhão
+psql:src/assert02-psqlDiff.sql:352: NOTICE:  pg_govLite: Schema nao-governado ok, q_prata nao possui tags governadas no padrao de nome
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:8: NOTICE:  Schema não-governado ok, q_gold_q não é medalhão
+psql:src/assert02-psqlDiff.sql:352: NOTICE:  pg_govLite: Schema nao-governado ok, q_gold_q nao possui tags governadas no padrao de nome
 CREATE SCHEMA
  mdl_key | f_table_schema | info | is_active 
 ---------+----------------+------+-----------
@@ -45,22 +46,22 @@ CREATE TABLE
 CREATE TABLE
 CREATE TABLE
 CREATE TABLE
-psql:src/assert02-psqlDiff.sql:17: ERROR:  Framework ERROR, schema semtag_bronze candidato a medalhão mas com tags ausentes: semtag
-CONTEXT:  PL/pgSQL function fw_cat.trig_medallion_upsert_event() line 18 at RAISE
+psql:src/assert02-psqlDiff.sql:361: ERROR:  pg_govLite ERROR, schema semtag_bronze candidato a tagging mas com tags ausentes: semtag
+CONTEXT:  PL/pgSQL function gvlt.trig_schema_tags_upsert_event() line 14 at RAISE
                         medallion_upsert                        
 ----------------------------------------------------------------
  SUCESSO: Schema q_bronze (tipo bronze) atualizado no catálogo.
 (1 row)
 
-psql:src/assert02-psqlDiff.sql:19: NOTICE:  -- EXE CREATE SCHEMA TSTDEMO_silver...
-psql:src/assert02-psqlDiff.sql:19: NOTICE:  Framework AFA: Schema tstdemo_silver registrado como silver!
+psql:src/assert02-psqlDiff.sql:363: NOTICE:  -- EXE CREATE SCHEMA TSTDEMO_silver...
+psql:src/assert02-psqlDiff.sql:363: NOTICE:  pg_govLite: Schema tstdemo_silver registrado com tags {TSTDEMO,Silver}!
                            medallion_upsert                           
 ----------------------------------------------------------------------
  SUCESSO: Schema TSTDEMO_silver (tipo silver) atualizado no catálogo.
 (1 row)
 
-psql:src/assert02-psqlDiff.sql:20: NOTICE:  -- EXE CREATE SCHEMA geo_gold...
-psql:src/assert02-psqlDiff.sql:20: NOTICE:  Framework AFA: Schema geo_gold registrado como gold!
+psql:src/assert02-psqlDiff.sql:364: NOTICE:  -- EXE CREATE SCHEMA geo_gold...
+psql:src/assert02-psqlDiff.sql:364: NOTICE:  pg_govLite: Schema geo_gold registrado com tags {GEO,Gold}!
                        medallion_upsert                       
 --------------------------------------------------------------
  SUCESSO: Schema geo_gold (tipo gold) atualizado no catálogo.
@@ -75,12 +76,12 @@ psql:src/assert02-psqlDiff.sql:20: NOTICE:  Framework AFA: Schema geo_gold regis
  g       | geo_gold       | {"y": 2} | t
 (5 rows)
 
-psql:src/assert02-psqlDiff.sql:25: ERROR:  schema "test_bronze" does not exist
-psql:src/assert02-psqlDiff.sql:25: ERROR:  schema "test_silver" does not exist
-psql:src/assert02-psqlDiff.sql:25: ERROR:  schema "test_gold" does not exist
-psql:src/assert02-psqlDiff.sql:27: ERROR:  schema "test_bronze_test" does not exist
-psql:src/assert02-psqlDiff.sql:27: ERROR:  schema "test_prata" does not exist
-psql:src/assert02-psqlDiff.sql:27: ERROR:  schema "test_gold_test" does not exist
+psql:src/assert02-psqlDiff.sql:369: ERROR:  schema "test_bronze" does not exist
+psql:src/assert02-psqlDiff.sql:369: ERROR:  schema "test_silver" does not exist
+psql:src/assert02-psqlDiff.sql:369: ERROR:  schema "test_gold" does not exist
+psql:src/assert02-psqlDiff.sql:371: ERROR:  schema "test_bronze_test" does not exist
+psql:src/assert02-psqlDiff.sql:371: ERROR:  schema "test_prata" does not exist
+psql:src/assert02-psqlDiff.sql:371: ERROR:  schema "test_gold_test" does not exist
  mdl_key | f_table_schema |   info   | is_active 
 ---------+----------------+----------+-----------
  s       | q_silver       |          | t
