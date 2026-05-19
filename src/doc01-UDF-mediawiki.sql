@@ -30,6 +30,80 @@ COMMENT ON FUNCTION doc_mediawiki_table_cell(text,text)
   IS 'Prepare plain text for a MediaWiki table cell by preserving line breaks as HTML breaks.'
 ;
 
+CREATE OR REPLACE FUNCTION doc_mediawiki_xml_escape(
+  p_text text,
+  p_empty text DEFAULT ''
+) RETURNS text AS $f$
+  SELECT replace(
+           replace(
+             replace(
+               replace(
+                 replace(COALESCE(p_text, p_empty, ''), '&', '&amp;'),
+                 '<', '&lt;'
+               ),
+               '>', '&gt;'
+             ),
+             '"', '&quot;'
+           ),
+           '''', '&apos;'
+         )
+$f$ LANGUAGE SQL IMMUTABLE;
+COMMENT ON FUNCTION doc_mediawiki_xml_escape(text,text)
+  IS 'Escape text for MediaWiki XML dump fields.'
+;
+
+CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_row(
+  p_schema_name text DEFAULT NULL,
+  p_name_like text DEFAULT '',
+  p_name_notlike text DEFAULT '',
+  p_oid oid DEFAULT NULL
+) RETURNS text AS $f$
+  SELECT COALESCE(
+    string_agg(
+      format(
+        E'|-\n|\'\'\'%1$s\'\'\' || %2$s || %3$s || %4$s',
+        f.name,
+        doc_mediawiki_nowiki(f.return_type),
+        doc_mediawiki_nowiki(f.arguments),
+        doc_mediawiki_nowiki(f.prokind)
+      ),
+      E'\n' ORDER BY f.schema_name, f.name, f.arguments
+    ),
+    '(no functions found)'
+  )
+  FROM doc_UDF_show_simple(p_schema_name, p_name_like, p_name_notlike, p_oid) f
+$f$ LANGUAGE SQL STABLE;
+COMMENT ON FUNCTION doc_UDF_generate_mediawiki_row(text,text,text,oid)
+  IS 'Generate MediaWiki table rows for UDF summary tables.'
+;
+-- SELECT doc_UDF_generate_mediawiki_row('public', '%geohash%');
+
+CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_section(
+  p_schema_name text DEFAULT NULL,
+  p_name_like text DEFAULT '',
+  p_name_notlike text DEFAULT '',
+  p_oid oid DEFAULT NULL
+) RETURNS text AS $f$
+  SELECT COALESCE(
+    string_agg(
+      format(
+        E'== \'\'\'%1$s\'\'\' ==\n* Descrição: %2$s\n* Retorno: \'\'%3$s\'\'\n* Assinatura: %4$s\n',
+        f.name,
+        doc_mediawiki_table_cell(f.comment, '(sem comentário)'),
+        doc_mediawiki_table_cell(f.return_type),
+        doc_mediawiki_nowiki(f.arguments)
+      ),
+      E'\n' ORDER BY f.schema_name, f.name, f.arguments
+    ),
+    '(no functions found)'
+  )
+  FROM doc_UDF_show_simple(p_schema_name, p_name_like, p_name_notlike, p_oid) f
+$f$ LANGUAGE SQL STABLE;
+COMMENT ON FUNCTION doc_UDF_generate_mediawiki_section(text,text,text,oid)
+  IS 'Generate MediaWiki page sections for UDF documentation.'
+;
+-- SELECT doc_UDF_generate_mediawiki_section('public', '%geohash%');
+
 CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_page(
   p_schema_name text DEFAULT NULL,
   p_name_like text DEFAULT '',
@@ -98,3 +172,39 @@ COMMENT ON FUNCTION doc_UDF_generate_mediawiki_guide(text,text,text)
 ;
 -- SELECT doc_UDF_generate_mediawiki_guide('public', '%geohash%');
 
+CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_xml_dump(
+  p_schema_name text DEFAULT NULL,
+  p_name_like text DEFAULT '',
+  p_name_notlike text DEFAULT '',
+  p_site_name text DEFAULT 'pg_govLite',
+  p_base_url text DEFAULT 'https://example.org/wiki/'
+) RETURNS text AS $f$
+  SELECT COALESCE(
+    format(
+      E'<?xml version="1.0" encoding="UTF-8"?>\n<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="0.11" xml:lang="en">\n  <siteinfo>\n    <sitename>%1$s</sitename>\n    <base>%2$s</base>\n    <generator>pg_govLite</generator>\n    <case>first-letter</case>\n    <namespaces>\n      <namespace key="0" case="first-letter" />\n    </namespaces>\n  </siteinfo>\n%3$s\n</mediawiki>',
+      doc_mediawiki_xml_escape(p_site_name),
+      doc_mediawiki_xml_escape(p_base_url),
+      string_agg(
+        format(
+          E'  <page>\n    <title>%1$s</title>\n    <ns>0</ns>\n    <id>%2$s</id>\n    <revision>\n      <id>%2$s</id>\n      <timestamp>%3$s</timestamp>\n      <contributor>\n        <username>pg_govLite</username>\n        <id>0</id>\n      </contributor>\n      <comment>Generated from PostgreSQL UDF metadata</comment>\n      <model>wikitext</model>\n      <format>text/x-wiki</format>\n      <text xml:space="preserve">%4$s</text>\n    </revision>\n  </page>',
+          doc_mediawiki_xml_escape(format('Function:%I.%I', f.schema_name, f.name)),
+          row_number,
+          to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+          doc_mediawiki_xml_escape(doc_UDF_generate_mediawiki_page(f.schema_name, f.name, p_name_notlike, f.oid))
+        ),
+        E'\n' ORDER BY f.schema_name, f.name, f.arguments
+      )
+    ),
+    '(no functions found)'
+  )
+  FROM (
+    SELECT
+      f.*,
+      row_number() OVER (ORDER BY f.schema_name, f.name, f.arguments) AS row_number
+    FROM doc_UDF_show_simple(p_schema_name, p_name_like, p_name_notlike) f
+  ) f
+$f$ LANGUAGE SQL STABLE;
+COMMENT ON FUNCTION doc_UDF_generate_mediawiki_xml_dump(text,text,text,text,text)
+  IS 'Generate a MediaWiki XML dump with one full page per UDF.'
+;
+-- SELECT doc_UDF_generate_mediawiki_xml_dump('public', '%geohash%');

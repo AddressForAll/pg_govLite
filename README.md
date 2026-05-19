@@ -20,7 +20,7 @@ See .. PDFs. UML class:
 Documentation helper scripts are also included in `src`:
 
 * `src/doc01-UDF-mediawiki.sql` generates MediaWiki documentation for PostgreSQL UDFs.
-* `src/inst04-documentation_examples.sql` installs executable documentation examples as views in `gvlt_doc_examples`. Usage examples are available in `src/doc02-examples.md`.
+* `src/inst04-documentation_examples.sql` installs executable documentation examples as views in `gvlt_doc_examples`, exposes function-example dependencies, and supports secondary example marking. Usage examples are available in `src/inst04-documentation_examples.md`.
 
 ## Install or test
 
