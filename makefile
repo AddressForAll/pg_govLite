@@ -31,6 +31,7 @@ CORE_SQL = \
 	./src/inst01-fw_lib.sql \
 	./src/inst02-fw_core.sql \
 	./src/inst03-fw_govRules.sql \
+	./src/inst04-documentation_examples.sql \
 	./src/assert01-basic.sql
 
 

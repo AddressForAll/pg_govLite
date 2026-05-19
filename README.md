@@ -17,6 +17,11 @@ See .. PDFs. UML class:
 
 ![](assets/pg_govLite-diag1v1.png)
 
+Documentation helper scripts are also included in `src`:
+
+* `src/doc01-UDF-mediawiki.sql` generates MediaWiki documentation for PostgreSQL UDFs.
+* `src/inst04-documentation_examples.sql` installs executable documentation examples as views in `gvlt_doc_examples`. Usage examples are available in `src/doc02-examples.md`.
+
 ## Install or test
 
 This project foresees installation on Linux, using `make` command.

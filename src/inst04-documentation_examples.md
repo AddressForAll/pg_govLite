@@ -1,6 +1,6 @@
 # Documentation Examples
 
-`doc02-examples.sql` adds support for storing documentation examples as executable PostgreSQL views.
+`inst04-documentation_examples.sql` adds support for storing documentation examples as executable PostgreSQL views.
 
 The main entry point is:
 
@@ -111,4 +111,3 @@ Example result:
  ex1       | SELECT round(pi(),3) AS x
  ex2       | SELECT id, f(x) AS y FROM t
 ```
-
