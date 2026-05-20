@@ -30,28 +30,6 @@ COMMENT ON FUNCTION doc_mediawiki_table_cell(text,text)
   IS 'Prepare plain text for a MediaWiki table cell by preserving line breaks as HTML breaks.'
 ;
 
-CREATE OR REPLACE FUNCTION doc_mediawiki_xml_escape(
-  p_text text,
-  p_empty text DEFAULT ''
-) RETURNS text AS $f$
-  SELECT replace(
-           replace(
-             replace(
-               replace(
-                 replace(COALESCE(p_text, p_empty, ''), '&', '&amp;'),
-                 '<', '&lt;'
-               ),
-               '>', '&gt;'
-             ),
-             '"', '&quot;'
-           ),
-           '''', '&apos;'
-         )
-$f$ LANGUAGE SQL IMMUTABLE;
-COMMENT ON FUNCTION doc_mediawiki_xml_escape(text,text)
-  IS 'Escape text for MediaWiki XML dump fields.'
-;
-
 CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_row(
   p_schema_name text DEFAULT NULL,
   p_name_like text DEFAULT '',
@@ -179,30 +157,74 @@ CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_xml_dump(
   p_site_name text DEFAULT 'pg_govLite',
   p_base_url text DEFAULT 'https://example.org/wiki/'
 ) RETURNS text AS $f$
-  SELECT COALESCE(
-    format(
-      E'<?xml version="1.0" encoding="UTF-8"?>\n<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="0.11" xml:lang="en">\n  <siteinfo>\n    <sitename>%1$s</sitename>\n    <base>%2$s</base>\n    <generator>pg_govLite</generator>\n    <case>first-letter</case>\n    <namespaces>\n      <namespace key="0" case="first-letter" />\n    </namespaces>\n  </siteinfo>\n%3$s\n</mediawiki>',
-      doc_mediawiki_xml_escape(p_site_name),
-      doc_mediawiki_xml_escape(p_base_url),
-      string_agg(
-        format(
-          E'  <page>\n    <title>%1$s</title>\n    <ns>0</ns>\n    <id>%2$s</id>\n    <revision>\n      <id>%2$s</id>\n      <timestamp>%3$s</timestamp>\n      <contributor>\n        <username>pg_govLite</username>\n        <id>0</id>\n      </contributor>\n      <comment>Generated from PostgreSQL UDF metadata</comment>\n      <model>wikitext</model>\n      <format>text/x-wiki</format>\n      <text xml:space="preserve">%4$s</text>\n    </revision>\n  </page>',
-          doc_mediawiki_xml_escape(format('Function:%I.%I', f.schema_name, f.name)),
-          row_number,
-          to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-          doc_mediawiki_xml_escape(doc_UDF_generate_mediawiki_page(f.schema_name, f.name, p_name_notlike, f.oid))
-        ),
-        E'\n' ORDER BY f.schema_name, f.name, f.arguments
-      )
-    ),
-    '(no functions found)'
-  )
-  FROM (
+  WITH functions AS (
     SELECT
       f.*,
       row_number() OVER (ORDER BY f.schema_name, f.name, f.arguments) AS row_number
     FROM doc_UDF_show_simple(p_schema_name, p_name_like, p_name_notlike) f
-  ) f
+  ),
+  pages AS (
+    SELECT
+      f.schema_name,
+      f.name,
+      f.arguments,
+      xmlelement(
+        NAME page,
+        xmlelement(NAME title, format('Function:%I.%I', f.schema_name, f.name)),
+        xmlelement(NAME ns, 0),
+        xmlelement(NAME id, f.row_number),
+        xmlelement(
+          NAME revision,
+          xmlelement(NAME id, f.row_number),
+          xmlelement(NAME timestamp, to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+          xmlelement(
+            NAME contributor,
+            xmlelement(NAME username, 'pg_govLite'),
+            xmlelement(NAME id, 0)
+          ),
+          xmlelement(NAME comment, 'Generated from PostgreSQL UDF metadata'),
+          xmlelement(NAME model, 'wikitext'),
+          xmlelement(NAME format, 'text/x-wiki'),
+          xmlelement(
+            NAME text,
+            xmlattributes('preserve' AS "xml:space"),
+            doc_UDF_generate_mediawiki_page(f.schema_name, f.name, p_name_notlike, f.oid)
+          )
+        )
+      ) AS page_xml
+    FROM functions f
+  )
+  SELECT CASE
+    WHEN count(*) = 0 THEN '(no functions found)'
+    ELSE xmlserialize(
+      DOCUMENT xmlelement(
+        NAME mediawiki,
+        xmlattributes(
+          'http://www.mediawiki.org/xml/export-0.11/' AS xmlns,
+          'http://www.w3.org/2001/XMLSchema-instance' AS "xmlns:xsi",
+          '0.11' AS version,
+          'en' AS "xml:lang"
+        ),
+        xmlelement(
+          NAME siteinfo,
+          xmlelement(NAME sitename, p_site_name),
+          xmlelement(NAME base, p_base_url),
+          xmlelement(NAME generator, 'pg_govLite'),
+          xmlelement(NAME "case", 'first-letter'),
+          xmlelement(
+            NAME namespaces,
+            xmlelement(
+              NAME namespace,
+              xmlattributes('0' AS key, 'first-letter' AS "case")
+            )
+          )
+        ),
+        xmlagg(page_xml ORDER BY schema_name, name, arguments)
+      )
+      AS text
+    )
+    END
+  FROM pages
 $f$ LANGUAGE SQL STABLE;
 COMMENT ON FUNCTION doc_UDF_generate_mediawiki_xml_dump(text,text,text,text,text)
   IS 'Generate a MediaWiki XML dump with one full page per UDF.'
