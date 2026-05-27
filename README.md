@@ -13,7 +13,11 @@ Adopt [Convention over Configuration](https://en.wikipedia.org/wiki/Convention_o
 All modules are external implementations, for example data quality is DQX, Secure control is external ABAC, etc. The pg_govLite is a central orchestration of modules by tags and triggers.
 
 ## Documentation
-See .. PDFs. UML class:
+See and, please, contribute commenting or correcting:
+* USER GUIDE - https://docs.google.com/document/d/1G7tC9tuRwqmwxtxUhElkZtnoM5JYWC_f2s2pLXkhXKs/
+* TUTORIAL - ...
+
+Below a fast presentation. UML class:
 
 ![](assets/pg_govLite-diag1v1.png)
 
