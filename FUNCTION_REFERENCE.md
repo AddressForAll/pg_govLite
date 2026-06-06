@@ -834,6 +834,23 @@ Expected result:
 |}
 ```
 
+### `doc_UDF_generate_mediawiki_xhtml_rows(text DEFAULT NULL, text DEFAULT '', text DEFAULT '', oid DEFAULT NULL, boolean DEFAULT true) RETURNS text`
+
+Generates only the XHTML `<tr>/<td>` rows that go inside a MediaWiki `wikitable`. It uses PostgreSQL SQL/XML constructors such as `xmlelement`, `xmlconcat`, `xmlparse`, and `xmlserialize` so text values are escaped by PostgreSQL's native XML handling.
+
+```sql
+SELECT doc_UDF_generate_mediawiki_xhtml_rows('public', '%round%');
+```
+
+Expected result:
+
+```html
+<tr><td> Function / Description / Example </td></tr>
+<tr><td><b><code>round(</code></b><i>double precision, integer</i><b><code>)</code> &#8594; </b> <i>numeric</i><p class="pgdoc_comment">Cast for ROUND(float,x). Useful for SUM, AVG, etc.</p></td></tr>
+```
+
+Pass `false` as the fifth argument to omit the header row.
+
 ### `doc_UDF_generate_mediawiki_xml_dump(text DEFAULT NULL, text DEFAULT '', text DEFAULT '', text DEFAULT 'pg_govLite', text DEFAULT 'https://example.org/wiki/') RETURNS text`
 
 Generates a MediaWiki XML dump with one page per UDF. It uses native PostgreSQL XML functions (`xmlelement`, `xmlattributes`, `xmlagg`, `xmlserialize`) to build the document.

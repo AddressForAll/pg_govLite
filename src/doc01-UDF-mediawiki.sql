@@ -6,6 +6,7 @@
  * - doc_UDF_show_simplified_signature()
  * - doc_UDF_transparent_id()
  * - doc_UDF_show_simple()
+ * - gvlt.vw_doc_function_examples, for XHTML example blocks
  */
 
 CREATE OR REPLACE FUNCTION doc_mediawiki_nowiki(
@@ -149,6 +150,97 @@ COMMENT ON FUNCTION doc_UDF_generate_mediawiki_guide(text,text,text)
   IS 'Generate guide-style MediaWiki documentation for UDFs as a sortable table of functions.'
 ;
 -- SELECT doc_UDF_generate_mediawiki_guide('public', '%geohash%');
+
+CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_xhtml_rows(
+  p_schema_name text DEFAULT NULL,
+  p_name_like text DEFAULT '',
+  p_name_notlike text DEFAULT '',
+  p_oid oid DEFAULT NULL,
+  p_include_header boolean DEFAULT true
+) RETURNS text AS $f$
+  WITH functions AS (
+    SELECT f.*
+    FROM doc_UDF_show_simple(p_schema_name, p_name_like, p_name_notlike, p_oid) f
+  ),
+  examples AS (
+    SELECT
+      f.oid,
+      string_agg(
+        xmlserialize(CONTENT xmlelement(NAME code, e.payload) AS text),
+        ' <br/> ' ORDER BY e.example_id
+      ) AS examples_html
+    FROM functions f
+    JOIN gvlt.vw_doc_function_examples e
+      ON e.function_oid = f.oid
+    WHERE NOT e.is_secondary
+    GROUP BY f.oid
+  ),
+  rows AS (
+    SELECT string_agg(
+      xmlserialize(
+        CONTENT xmlelement(
+          NAME tr,
+          xmlelement(
+            NAME td,
+            XMLPARSE(
+              CONTENT xmlserialize(
+                CONTENT xmlconcat(
+                  xmlelement(NAME b, xmlelement(NAME code, COALESCE(f.name, '') || '(')),
+                  xmlelement(NAME i, COALESCE(f.arguments, '')),
+                  xmlelement(
+                    NAME b,
+                    xmlelement(NAME code, ')'),
+                    XMLPARSE(CONTENT ' &#8594; ')
+                  ),
+                  XMLPARSE(CONTENT ' '),
+                  xmlelement(NAME i, COALESCE(f.return_type, '')),
+                  xmlelement(
+                    NAME p,
+                    xmlattributes('pgdoc_comment' AS class),
+                    COALESCE(f.comment, '(sem comentario)')
+                  )
+                )
+                AS text
+              )
+              || CASE
+                WHEN e.examples_html IS NULL THEN ''
+                ELSE xmlserialize(
+                  CONTENT xmlelement(
+                    NAME p,
+                    xmlattributes('pgdoc_examples' AS class),
+                    XMLPARSE(CONTENT e.examples_html)
+                  )
+                  AS text
+                )
+                END
+            )
+          )
+        )
+        AS text
+      ),
+      E'\n' ORDER BY f.schema_name, f.name, f.arguments
+    ) AS rows_html,
+    count(*) AS function_count
+    FROM functions f
+    LEFT JOIN examples e
+      ON e.oid = f.oid
+  )
+  SELECT CASE
+    WHEN function_count = 0 THEN '(no functions found)'
+    ELSE CASE
+      WHEN p_include_header THEN xmlserialize(
+        CONTENT xmlelement(NAME tr, xmlelement(NAME td, ' Function / Description / Example '))
+        AS text
+      ) || E'\n'
+      ELSE ''
+      END || rows_html
+    END
+  FROM rows
+$f$ LANGUAGE SQL STABLE;
+COMMENT ON FUNCTION doc_UDF_generate_mediawiki_xhtml_rows(text,text,text,oid,boolean)
+  IS 'Generate XHTML <tr>/<td> rows for a MediaWiki wikitable body, including function signature, description, and primary examples.'
+;
+-- SELECT doc_UDF_generate_mediawiki_xhtml_rows('public', '%geohash%');
 
 CREATE OR REPLACE FUNCTION doc_UDF_generate_mediawiki_xml_dump(
   p_schema_name text DEFAULT NULL,
