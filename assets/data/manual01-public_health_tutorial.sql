@@ -5,6 +5,8 @@
 -- Purpose:
 --   Run the public-health tutorial flow described in the manual using a
 --   small built-in sample modeled after public IBGE/ANS data.
+-- Use Case ID:
+--   SpCs01 - Public Health Municipality Access
 --
 -- Requirements:
 --   Run the pg_govLite installation first, for example:
@@ -16,7 +18,7 @@
 --   a clean PostgreSQL database without network access.
 --
 
-\echo '--- pg_govLite manual examples: public health tutorial ---'
+\echo '--- SpCs01: public health municipality access tutorial ---'
 
 DO $do$
 DECLARE
@@ -49,18 +51,13 @@ WHERE obj_name LIKE 'hlth_%'
 
 \echo '--- Step 1: define the governed health domain ---'
 
-INSERT INTO gvlt.tag (tag_name, role, tag_desc, rdf_id, ctrl_config)
-VALUES (
+SELECT gvlt.tag_include(
   'HLTH',
   'macrodomain',
   'Public and supplementary health data domain',
   NULL,
   '{"descr_expand":"Health data domain for public-interest analysis","lang":"en"}'::jsonb
-)
-ON CONFLICT (tag_name) DO UPDATE
-SET tag_desc = EXCLUDED.tag_desc,
-    ctrl_config = COALESCE(EXCLUDED.ctrl_config, gvlt.tag.ctrl_config),
-    is_active = true;
+);
 
 \echo '--- Step 2: create Medallion schemas ---'
 
@@ -157,10 +154,22 @@ INSERT INTO hlth_bronze.ans_operator_raw (
 
 \echo '--- Step 5: tag schemas, tables, and columns ---'
 
-SELECT gvlt.govtags_is_include('geo_bronze.ibge_municipality_raw', ARRAY['GEO', 'Stage', 'Tier:3']);
-SELECT gvlt.govtags_is_include('hlth_bronze.ans_operator_raw', ARRAY['HLTH', 'Stage', 'Organization.Medical', 'Tier:3']);
-SELECT gvlt.govtags_is_include('geo_bronze.ibge_municipality_raw.ibge_municipality_id', ARRAY['ID', 'GEO']);
-SELECT gvlt.govtags_is_include('hlth_bronze.ans_operator_raw.operator_registration', ARRAY['ID', 'Organization.Medical']);
+SELECT gvlt.tagobj_include(
+  ARRAY['GEO', 'Stage', 'Tier:3'],
+  ARRAY['geo_bronze.ibge_municipality_raw']
+);
+SELECT gvlt.tagobj_include(
+  ARRAY['HLTH', 'Stage', 'Organization.Medical', 'Tier:3'],
+  ARRAY['hlth_bronze.ans_operator_raw']
+);
+SELECT gvlt.tagobj_include(
+  ARRAY['ID', 'GEO'],
+  ARRAY['geo_bronze.ibge_municipality_raw.ibge_municipality_id']
+);
+SELECT gvlt.tagobj_include(
+  ARRAY['ID', 'Organization.Medical'],
+  ARRAY['hlth_bronze.ans_operator_raw.operator_registration']
+);
 
 \echo '--- Step 6: build Silver curated tables ---'
 
@@ -180,8 +189,14 @@ SELECT DISTINCT
 FROM hlth_bronze.ans_operator_raw
 WHERE operator_registration IS NOT NULL;
 
-SELECT gvlt.govtags_is_include('geo_silver.ibge_municipality', ARRAY['GEO', 'Tier:2']);
-SELECT gvlt.govtags_is_include('hlth_silver.ans_operator', ARRAY['HLTH', 'Organization.Medical', 'Tier:2']);
+SELECT gvlt.tagobj_include(
+  ARRAY['GEO', 'Tier:2'],
+  ARRAY['geo_silver.ibge_municipality']
+);
+SELECT gvlt.tagobj_include(
+  ARRAY['HLTH', 'Organization.Medical', 'Tier:2'],
+  ARRAY['hlth_silver.ans_operator']
+);
 
 \echo '--- Step 7: publish a Gold data product ---'
 
@@ -202,9 +217,9 @@ GROUP BY
 COMMENT ON VIEW hlth_gold.vw_municipality_health_access
 IS 'Gold data product joining IBGE municipality reference data with ANS supplementary-health operator context.';
 
-SELECT gvlt.govtags_is_include(
-  'hlth_gold.vw_municipality_health_access',
-  ARRAY['HLTH', 'GEO', 'Gold', 'Prod', 'isProduct', 'Tier:1']
+SELECT gvlt.tagobj_include(
+  ARRAY['HLTH', 'GEO', 'Gold', 'Prod', 'isProduct', 'Tier:1'],
+  ARRAY['hlth_gold.vw_municipality_health_access']
 );
 
 SELECT *
@@ -275,4 +290,4 @@ BEGIN
 END
 $do$;
 
-SELECT '--- MANUAL PUBLIC HEALTH TUTORIAL EXAMPLES FINISHED ---' AS final_message;
+SELECT '--- SpCs01 PUBLIC HEALTH TUTORIAL TEST CASE FINISHED ---' AS final_message;

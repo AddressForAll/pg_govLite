@@ -26,6 +26,21 @@ Documentation helper scripts are also included in `src`:
 * `src/doc01-UDF-mediawiki.sql` generates MediaWiki documentation for PostgreSQL UDFs, including summary rows, page sections, full pages, and XML dumps. Usage examples are available in `src/doc01-UDF-mediawiki.md`.
 * `src/inst04-documentation_examples.sql` installs executable documentation examples as views in `gvlt_doc_examples`, exposes function-example dependencies, and supports secondary example marking. Usage examples are available in `src/inst04-documentation_examples.md`.
 
+### Use cases and test cases
+
+Curated tutorial-derived use cases are documented in `assets/usecases`.
+
+* `assets/usecases/README.md` defines the use-case/test-case pattern.
+* `assets/usecases/SpCs01-public-health.md` documents the executable simple tutorial case.
+* `assets/usecases/CxCs01-municipal-climate.md` documents the complex municipal climate case and its external dependencies.
+
+Use cases should use the short governance API:
+
+* `gvlt.tag_include(...)` creates or updates governed tags.
+* `gvlt.tagobj_include(...)` associates governed tags with schemas, relations, and columns.
+
+The lower-level `gvlt.govtags_*` functions remain the internal implementation surface and are still covered by core asserts.
+
 ### User manual and executable tutorial
 
 The user manual is available as a Word document:
@@ -47,4 +62,5 @@ This project foresees installation on Linux, using `make` command.
 * `make` show all options.
 * `make all` will install all in your database (edit Makefile to set your configurations). Standard installation.
 * `make manualExamples` will execute the SQL examples from the user manual tutorial. Run `make core` first when the database has not been initialized yet.
+* `make usecaseExamples` will execute approved simple use-case test cases. It currently runs `SpCs01`.
 * `make dropDbTest` will DROP the test-database and install all in it. Important for developers, to avoid [Software regression](https://en.wikipedia.org/wiki/Software_regression).
