@@ -34,7 +34,7 @@ CORE_SQL = \
 	./src/inst04-documentation_examples.sql \
 	./src/assert01-basic.sql
 
-.PHONY: help see assertDiff core all manualExamples dropDbTest
+.PHONY: help see assertDiff core all manualExamples usecaseExamples dropDbTest
 
 
 help:
@@ -44,6 +44,7 @@ help:
 	  '  inst         - installations.' \
 	  '  assertDiff   - execute only asserts by diff.' \
 	  '  manualExamples - execute the SQL examples from the user manual tutorial.' \
+	  '  usecaseExamples - execute approved simple use-case test cases.' \
 		'  test_all     - execute all on the default test-database.' \
 		'  see          - show variables' \
 		'  dropDbTest   - run all on trash-test database' \
@@ -78,6 +79,8 @@ all: core assertDiff
 manualExamples:
 	@echo ">>> Executing user manual tutorial examples:"
 	$(PSQL_CMD) -f ./assets/data/manual01-public_health_tutorial.sql
+
+usecaseExamples: manualExamples
 
 dropDbTest:
 	$(PSQL_CMD3) -c "DROP DATABASE IF EXISTS $(TRASHDB);"

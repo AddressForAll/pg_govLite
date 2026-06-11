@@ -509,6 +509,66 @@ assert02_obj.relation | CNPJ     | t
 assert02_obj.relation | CPF      | t
 ```
 
+### `gvlt.tag_include(text, text, text, text DEFAULT NULL, jsonb DEFAULT NULL, jsonb DEFAULT NULL) RETURNS boolean`
+
+Use-case friendly API for creating or updating a governed tag. It validates the
+role, validates the optional RDF prefix, inserts a new tag when needed, and
+reactivates an existing tag with the same case-insensitive name.
+
+```sql
+SELECT gvlt.tag_include(
+  'climate',
+  'semantic',
+  'Long-term statistical characterization of atmospheric conditions in a region.',
+  'wd:Q7937'
+);
+```
+
+Expected result:
+
+```text
+t
+```
+
+### `gvlt.tagobj_include(text, text[]) RETURNS boolean`
+
+Use-case friendly API for associating one governed tag with many objects. It is
+intended for tutorial and issue-curated cases where a single semantic tag must
+be applied to several relations or columns.
+
+```sql
+SELECT gvlt.tagobj_include(
+  'climate',
+  ARRAY[
+    'tutcase_bronze.br_climate1',
+    'tutcase_grid_silver.br_rr_cliemate1_mvw01resample'
+  ]
+);
+```
+
+Expected result:
+
+```text
+t
+```
+
+### `gvlt.tagobj_include(text[], text[]) RETURNS boolean`
+
+Use-case friendly API for associating many governed tags with many objects.
+
+```sql
+SELECT gvlt.tagobj_include(
+  ARRAY['GEO', 'Tier:2'],
+  ARRAY['geo_silver.ibge_municipality']
+);
+```
+
+Expected result:
+
+```text
+t
+```
+
 ## `src/inst03-fw_govRules.sql`
 
 Governance-rule functions and DDL event triggers for Medallion schemas.
