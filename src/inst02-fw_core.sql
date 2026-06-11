@@ -355,6 +355,140 @@ $$ LANGUAGE plpgsql;
 
 -- tag-objeto medalhão.
 
+-- Tutorial/use-case friendly API aliases.
+-- Keep the internal govtags_* functions as the implementation surface, while
+-- exposing short names for issue-curated use cases.
+CREATE OR REPLACE FUNCTION gvlt.tag_include(
+    p_tag_name text,
+    p_role text,
+    p_tag_desc text,
+    p_rdf_id text DEFAULT NULL,
+    p_ctrl_config jsonb DEFAULT NULL,
+    p_info jsonb DEFAULT NULL
+) RETURNS boolean AS $$
+DECLARE
+    v_tag_name text;
+    v_existing_tag text;
+    v_role text;
+    v_tag_desc text;
+    v_rdf_id text;
+BEGIN
+    v_tag_name := trim(p_tag_name);
+    v_role := lower(trim(p_role));
+    v_tag_desc := trim(p_tag_desc);
+    v_rdf_id := NULLIF(trim(p_rdf_id), '');
+
+    IF v_tag_name IS NULL OR v_tag_name = '' THEN
+        RAISE WARNING 'Tag invalida para inclusao: %', p_tag_name;
+        RETURN false;
+    END IF;
+
+    IF v_role IS NULL OR v_role = '' OR NOT EXISTS (
+        SELECT 1 FROM gvlt.role_config WHERE role_name = v_role AND is_active
+    ) THEN
+        RAISE WARNING 'Role invalido para tag %: %', v_tag_name, p_role;
+        RETURN false;
+    END IF;
+
+    IF v_tag_desc IS NULL OR v_tag_desc = '' THEN
+        RAISE WARNING 'Descricao invalida para tag %', v_tag_name;
+        RETURN false;
+    END IF;
+
+    IF v_rdf_id IS NOT NULL AND NOT gvlt.rdf_prefix_valid(v_rdf_id) THEN
+        RAISE WARNING 'RDF id invalido para tag %: %', v_tag_name, v_rdf_id;
+        RETURN false;
+    END IF;
+
+    SELECT tag_name
+    INTO v_existing_tag
+    FROM gvlt.tag
+    WHERE lower(tag_name) = lower(v_tag_name);
+
+    IF v_existing_tag IS NULL THEN
+        INSERT INTO gvlt.tag (
+            tag_name,
+            role,
+            tag_desc,
+            rdf_id,
+            ctrl_config,
+            info
+        )
+        VALUES (
+            v_tag_name,
+            v_role,
+            v_tag_desc,
+            v_rdf_id,
+            p_ctrl_config,
+            p_info
+        );
+    ELSE
+        UPDATE gvlt.tag
+        SET role = v_role,
+            tag_desc = v_tag_desc,
+            rdf_id = v_rdf_id,
+            ctrl_config = COALESCE(p_ctrl_config, gvlt.tag.ctrl_config),
+            info = COALESCE(p_info, gvlt.tag.info),
+            is_active = true
+        WHERE tag_name = v_existing_tag;
+    END IF;
+
+    RETURN true;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gvlt.tagobj_include(
+    p_tag_to_add text,
+    p_obj_names text[]
+) RETURNS boolean AS $$
+DECLARE
+    v_obj_name text;
+    v_ok boolean := true;
+BEGIN
+    IF array_length(p_obj_names, 1) IS NULL THEN
+        RAISE WARNING 'Lista de objetos vazia para tagging.';
+        RETURN false;
+    END IF;
+
+    IF NOT gvlt.govtags_exists(p_tag_to_add) THEN
+        RAISE WARNING 'Tag nao governada para associacao: %', p_tag_to_add;
+        RETURN false;
+    END IF;
+
+    FOREACH v_obj_name IN ARRAY p_obj_names LOOP
+        v_ok := gvlt.govtags_is_include(v_obj_name, ARRAY[p_tag_to_add]) AND v_ok;
+    END LOOP;
+
+    RETURN v_ok;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gvlt.tagobj_include(
+    p_tags_to_add text[],
+    p_obj_names text[]
+) RETURNS boolean AS $$
+DECLARE
+    v_obj_name text;
+    v_ok boolean := true;
+BEGIN
+    IF array_length(p_obj_names, 1) IS NULL THEN
+        RAISE WARNING 'Lista de objetos vazia para tagging.';
+        RETURN false;
+    END IF;
+
+    IF NOT gvlt.govtags_exists(p_tags_to_add) THEN
+        RAISE WARNING 'Uma ou mais tags nao sao governadas para associacao.';
+        RETURN false;
+    END IF;
+
+    FOREACH v_obj_name IN ARRAY p_obj_names LOOP
+        v_ok := gvlt.govtags_is_include(v_obj_name, p_tags_to_add) AND v_ok;
+    END LOOP;
+
+    RETURN v_ok;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE VIEW gvlt.vw01_medallion AS
   SELECT o.*, t.tag_desc
   FROM gvlt.tag_obj o INNER JOIN gvlt.tag t
