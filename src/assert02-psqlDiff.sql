@@ -249,6 +249,47 @@ ASSERT NOT gvlt.govtags_is_include('assert02_obj.relation.column.extra', ARRAY['
 ASSERT NOT gvlt.govtags_is_include('assert02_obj.relation', ARRAY['no_such_tag']),
   'Error: gvlt.govtags_is_include should reject unknown tags';
 
+ASSERT gvlt.tag_include(
+  'assert02Climate',
+  'semantic',
+  'Assert02 climate semantic tag',
+  'wd:Q7937'
+),
+  'Error: gvlt.tag_include should create a governed tag';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag
+  WHERE tag_name = 'assert02Climate'
+    AND role = 'semantic'
+    AND rdf_id = 'wd:Q7937'
+    AND is_active
+),
+  'Error: gvlt.tag_include did not upsert the expected tag';
+ASSERT gvlt.tagobj_include(
+  'assert02Climate',
+  ARRAY[
+    'assert02_obj.alias_relation',
+    'assert02_obj.alias_relation.climate_avg'
+  ]
+),
+  'Error: gvlt.tagobj_include(text,text[]) should tag all listed objects';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'assert02_obj.alias_relation'
+    AND tag_name = 'assert02Climate'
+    AND is_active
+),
+  'Error: gvlt.tagobj_include did not tag the relation object';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'assert02_obj.alias_relation.climate_avg'
+    AND tag_name = 'assert02Climate'
+    AND is_active
+),
+  'Error: gvlt.tagobj_include did not tag the column object';
+
 v_text := gvlt.medallion_upsert('t_bronze', '{"case":"manual"}'::jsonb);
 ASSERT v_text LIKE 'SUCESSO:%',
   'Error: gvlt.medallion_upsert(valid schema) should return success';
@@ -348,6 +389,7 @@ EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_silver CASCADE';
 EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_stage_bronze CASCADE';
 DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'assert02%';
 DELETE FROM gvlt.tag_obj WHERE obj_name IN ('t_bronze', 'tsttmp_silver', 'tsttmp_stage_bronze');
+DELETE FROM gvlt.tag WHERE tag_name = 'assert02Climate';
 
 END $do$;
 
