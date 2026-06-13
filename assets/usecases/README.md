@@ -45,6 +45,7 @@ Each curated use case should include:
 - Use `gvlt.tag_include(...)` to create or update governed tags.
 - Use `gvlt.tagobj_include(...)` to associate governed tags with relations,
   schemas, and columns.
+- Use `gvlt.usecase_assert_obj_tags(...)` for required object/tag checks in
+  executable cases.
 - Keep the lower-level `gvlt.govtags_*` functions as internal implementation
   details for core tests and compatibility.
-

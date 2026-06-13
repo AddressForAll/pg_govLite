@@ -262,15 +262,11 @@ ORDER BY id;
 
 DO $do$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM gvlt.tag_obj
-    WHERE obj_name = 'hlth_gold.vw_municipality_health_access'
-      AND tag_name = 'isProduct'
-      AND is_active
-  ) THEN
-    RAISE EXCEPTION 'Manual example failed: Gold data product is not tagged as isProduct';
-  END IF;
+  PERFORM gvlt.usecase_assert_obj_tags(
+    'SpCs01',
+    'hlth_gold.vw_municipality_health_access',
+    ARRAY['HLTH', 'GEO', 'Gold', 'Prod', 'isProduct', 'Tier:1']
+  );
 
   IF (
     SELECT active_operator_count

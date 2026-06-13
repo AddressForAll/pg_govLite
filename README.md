@@ -38,6 +38,9 @@ Use cases should use the short governance API:
 
 * `gvlt.tag_include(...)` creates or updates governed tags.
 * `gvlt.tagobj_include(...)` associates governed tags with schemas, relations, and columns.
+* `gvlt.tag_disable(...)` and `gvlt.tagobj_disable(...)` deactivate tags and object/tag associations without deleting catalog history.
+* `gvlt.obj_tags(...)`, `gvlt.obj_has_tags(...)`, and `gvlt.usecase_assert_obj_tags(...)` support inspection and executable checks.
+* `gvlt.tag_get(...)`, `gvlt.tag_search(...)`, `gvlt.relation_columns(...)`, `gvlt.medallion_objects(...)`, and `gvlt.governance_check(...)` provide catalog discovery and audit helpers.
 
 The lower-level `gvlt.govtags_*` functions remain the internal implementation surface and are still covered by core asserts.
 

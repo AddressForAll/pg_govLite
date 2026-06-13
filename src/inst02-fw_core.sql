@@ -235,6 +235,39 @@ $f$ LANGUAGE SQL;
 
 -- depois criar materializada com apenas <obj_name, tags text[]>.
 
+CREATE OR REPLACE FUNCTION gvlt.schema_name_tags(p_schema_name text) RETURNS text[] AS $f$
+WITH a AS (
+  SELECT t.p, t.i, g.tag_name, g.role
+  FROM string_to_table(trim(lower(p_schema_name), '_'), '_') WITH ORDINALITY t(p, i)
+  LEFT JOIN gvlt.tag g
+    ON lower(g.tag_name) = t.p
+), mx AS (
+  SELECT max(i) AS max_i FROM a
+)
+SELECT CASE
+  WHEN NOT EXISTS (
+    SELECT 1
+    FROM a, mx
+    WHERE a.i = mx.max_i
+      AND a.role = 'medallion'
+  ) THEN NULL
+  WHEN EXISTS (
+    SELECT 1
+    FROM a
+    WHERE a.tag_name IS NULL
+      AND length(a.p) > 1
+  ) THEN ARRAY['!']::text[]
+  ELSE (
+    SELECT array_agg(a.tag_name ORDER BY a.i)
+    FROM a
+    WHERE a.tag_name IS NOT NULL
+  )
+END
+$f$ LANGUAGE SQL;
+COMMENT ON FUNCTION gvlt.schema_name_tags(text)
+  IS 'Extract all governed tags from a Medallion schema name, returning NULL for non-Medallion names and {!} when required tags are missing.'
+;
+
 CREATE TABLE gvlt.tag_obj( -- associating object with tag:
    obj_name text NOT NULL CHECK( lower(trim(obj_name))=obj_name AND lib.object_getype(obj_name) IS NOT NULL ),
    obj_id   bigint,  -- internal use, controlling existence and rename actions.
@@ -488,6 +521,467 @@ BEGIN
     RETURN v_ok;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gvlt.tag_disable(
+    p_tag_name text,
+    p_reason text DEFAULT NULL
+) RETURNS boolean AS $$
+DECLARE
+    v_existing_tag text;
+BEGIN
+    SELECT tag_name
+    INTO v_existing_tag
+    FROM gvlt.tag
+    WHERE lower(tag_name) = lower(trim(p_tag_name));
+
+    IF v_existing_tag IS NULL THEN
+        RAISE WARNING 'Tag nao encontrada para desativacao: %', p_tag_name;
+        RETURN false;
+    END IF;
+
+    UPDATE gvlt.tag
+    SET is_active = false,
+        info = COALESCE(info, '{}'::jsonb)
+          || jsonb_build_object(
+               'disabled_at', clock_timestamp(),
+               'disabled_reason', NULLIF(trim(p_reason), '')
+             )
+    WHERE tag_name = v_existing_tag;
+
+    RETURN true;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gvlt.tagobj_disable(
+    p_obj_name text,
+    p_tags_to_disable text[] DEFAULT NULL
+) RETURNS boolean AS $$
+DECLARE
+    v_obj_name text;
+    v_normalized_tags text[];
+    v_rows bigint;
+BEGIN
+    v_obj_name := lower(trim(p_obj_name));
+
+    IF v_obj_name IS NULL OR v_obj_name = '' OR lib.object_getype(v_obj_name) IS NULL THEN
+        RAISE WARNING 'Objeto invalido para desativacao de tagging: %', p_obj_name;
+        RETURN false;
+    END IF;
+
+    IF p_tags_to_disable IS NULL THEN
+        UPDATE gvlt.tag_obj
+        SET is_active = false
+        WHERE obj_name = v_obj_name
+          AND is_active;
+    ELSE
+        IF NOT gvlt.govtags_exists(p_tags_to_disable) THEN
+            RAISE WARNING 'Uma ou mais tags nao sao governadas para desativacao.';
+            RETURN false;
+        END IF;
+
+        v_normalized_tags := gvlt.govtags_normalize(p_tags_to_disable);
+
+        UPDATE gvlt.tag_obj
+        SET is_active = false
+        WHERE obj_name = v_obj_name
+          AND tag_name = ANY(v_normalized_tags)
+          AND is_active;
+    END IF;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    IF v_rows = 0 THEN
+        RAISE WARNING 'Nenhuma associacao ativa encontrada para desativacao em %', v_obj_name;
+        RETURN false;
+    END IF;
+
+    RETURN true;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gvlt.obj_tags(
+    p_obj_name text,
+    p_only_active boolean DEFAULT true
+) RETURNS TABLE(
+    obj_name text,
+    otype "char",
+    tag_name text,
+    role text,
+    tag_desc text,
+    rdf_id text,
+    is_active boolean,
+    ctrl_config jsonb
+) AS $$
+    SELECT
+        o.obj_name,
+        lib.object_getype(o.obj_name) AS otype,
+        o.tag_name,
+        t.role,
+        t.tag_desc,
+        t.rdf_id,
+        o.is_active,
+        o.ctrl_config
+    FROM gvlt.tag_obj o
+    JOIN gvlt.tag t
+      ON t.tag_name = o.tag_name
+    WHERE o.obj_name = lower(trim(p_obj_name))
+      AND (NOT p_only_active OR (o.is_active AND t.is_active))
+    ORDER BY t.role, o.tag_name
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION gvlt.obj_has_tags(
+    p_obj_name text,
+    p_required_tags text[]
+) RETURNS boolean AS $$
+DECLARE
+    v_obj_name text;
+    v_required_tags text[];
+BEGIN
+    v_obj_name := lower(trim(p_obj_name));
+
+    IF v_obj_name IS NULL OR v_obj_name = '' OR lib.object_getype(v_obj_name) IS NULL THEN
+        RETURN false;
+    END IF;
+
+    IF array_length(p_required_tags, 1) IS NULL THEN
+        RETURN false;
+    END IF;
+
+    IF NOT gvlt.govtags_exists(p_required_tags) THEN
+        RETURN false;
+    END IF;
+
+    v_required_tags := gvlt.govtags_normalize(p_required_tags);
+
+    RETURN NOT EXISTS (
+        SELECT 1
+        FROM unnest(v_required_tags) r(tag_name)
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM gvlt.tag_obj o
+            JOIN gvlt.tag t
+              ON t.tag_name = o.tag_name
+            WHERE o.obj_name = v_obj_name
+              AND o.tag_name = r.tag_name
+              AND o.is_active
+              AND t.is_active
+        )
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gvlt.usecase_assert_obj_tags(
+    p_case_id text,
+    p_obj_name text,
+    p_required_tags text[]
+) RETURNS boolean AS $$
+BEGIN
+    IF gvlt.obj_has_tags(p_obj_name, p_required_tags) THEN
+        RETURN true;
+    END IF;
+
+    RAISE EXCEPTION 'Use case % failed: object % does not have required active tags %',
+      p_case_id,
+      p_obj_name,
+      p_required_tags;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gvlt.tag_get(
+    p_tag_name text
+) RETURNS TABLE(
+    tag_name text,
+    role text,
+    tag_desc text,
+    rdf_id text,
+    is_active boolean,
+    info jsonb,
+    ctrl_config jsonb
+) AS $$
+    SELECT
+        t.tag_name,
+        t.role,
+        t.tag_desc,
+        t.rdf_id,
+        t.is_active,
+        t.info,
+        t.ctrl_config
+    FROM gvlt.tag t
+    WHERE lower(t.tag_name) = lower(trim(p_tag_name))
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION gvlt.tag_search(
+    p_text text DEFAULT NULL,
+    p_role text DEFAULT NULL,
+    p_only_active boolean DEFAULT true
+) RETURNS TABLE(
+    tag_name text,
+    role text,
+    tag_desc text,
+    rdf_id text,
+    is_active boolean
+) AS $$
+    SELECT
+        t.tag_name,
+        t.role,
+        t.tag_desc,
+        t.rdf_id,
+        t.is_active
+    FROM gvlt.tag t
+    WHERE (p_text IS NULL OR p_text = ''
+        OR t.tag_name ILIKE '%' || p_text || '%'
+        OR t.tag_desc ILIKE '%' || p_text || '%'
+        OR COALESCE(t.rdf_id, '') ILIKE '%' || p_text || '%')
+      AND (p_role IS NULL OR p_role = '' OR t.role = lower(trim(p_role)))
+      AND (NOT p_only_active OR t.is_active)
+    ORDER BY t.role, t.tag_name
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION gvlt.relation_columns(
+    p_relname text
+) RETURNS TABLE(
+    schema_name text,
+    relation_name text,
+    column_name text,
+    ordinal_position int,
+    data_type text,
+    is_nullable boolean,
+    column_default text,
+    tags text[]
+) AS $$
+WITH rel AS (
+    SELECT to_regclass(gvlt.rel_getname(p_relname)) AS oid
+), cols AS (
+    SELECT
+        n.nspname::text AS schema_name,
+        c.relname::text AS relation_name,
+        a.attname::text AS column_name,
+        a.attnum::int AS ordinal_position,
+        format_type(a.atttypid, a.atttypmod) AS data_type,
+        NOT a.attnotnull AS is_nullable,
+        pg_get_expr(ad.adbin, ad.adrelid) AS column_default
+    FROM rel
+    JOIN pg_class c
+      ON c.oid = rel.oid
+    JOIN pg_namespace n
+      ON n.oid = c.relnamespace
+    JOIN pg_attribute a
+      ON a.attrelid = c.oid
+     AND a.attnum > 0
+     AND NOT a.attisdropped
+    LEFT JOIN pg_attrdef ad
+      ON ad.adrelid = c.oid
+     AND ad.adnum = a.attnum
+)
+SELECT
+    cols.schema_name,
+    cols.relation_name,
+    cols.column_name,
+    cols.ordinal_position,
+    cols.data_type,
+    cols.is_nullable,
+    cols.column_default,
+    (
+        SELECT array_agg(o.tag_name ORDER BY o.tag_name)
+        FROM gvlt.tag_obj o
+        JOIN gvlt.tag t
+          ON t.tag_name = o.tag_name
+        WHERE o.obj_name = cols.schema_name || '.' || cols.relation_name || '.' || cols.column_name
+          AND o.is_active
+          AND t.is_active
+    ) AS tags
+FROM cols
+ORDER BY cols.ordinal_position
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION gvlt.governance_check()
+RETURNS TABLE(
+    check_name text,
+    severity text,
+    obj_name text,
+    message text
+) AS $$
+WITH active_tag_objects AS (
+    SELECT
+        o.obj_name,
+        o.tag_name,
+        lib.object_getype(o.obj_name) AS otype,
+        string_to_array(o.obj_name, '.') AS parts
+    FROM gvlt.tag_obj o
+    WHERE o.is_active
+), physical_schemas AS (
+    SELECT nspname::text AS schema_name
+    FROM pg_namespace
+    WHERE nspname NOT LIKE 'pg_%'
+      AND nspname <> 'information_schema'
+), medallion_candidates AS (
+    SELECT
+        schema_name,
+        gvlt.schema_name_tags(schema_name) AS tags
+    FROM physical_schemas
+)
+SELECT
+    'inactive_tag_with_active_object'::text AS check_name,
+    'warning'::text AS severity,
+    o.obj_name,
+    format('Object has active association with inactive tag %s.', o.tag_name) AS message
+FROM active_tag_objects o
+JOIN gvlt.tag t
+  ON t.tag_name = o.tag_name
+WHERE NOT t.is_active
+
+UNION ALL
+
+SELECT
+    'invalid_medallion_schema_name',
+    'error',
+    schema_name,
+    format('Schema name looks governed but has missing tags: %s.', array_to_string(gvlt.schema_name_nontag(schema_name), ','))
+FROM medallion_candidates
+WHERE tags = ARRAY['!']::text[]
+
+UNION ALL
+
+SELECT
+    'medallion_schema_without_catalog_tag',
+    'error',
+    schema_name,
+    'Physical Medallion schema exists without all expected active catalog tags.'
+FROM medallion_candidates mc
+WHERE tags IS NOT NULL
+  AND tags <> ARRAY['!']::text[]
+  AND EXISTS (
+      SELECT 1
+      FROM unnest(tags) expected(tag_name)
+      WHERE NOT EXISTS (
+          SELECT 1
+          FROM gvlt.tag_obj o
+          JOIN gvlt.tag t
+            ON t.tag_name = o.tag_name
+          WHERE o.obj_name = mc.schema_name
+            AND o.tag_name = expected.tag_name
+            AND o.is_active
+            AND t.is_active
+      )
+  )
+
+UNION ALL
+
+SELECT
+    'active_schema_tag_without_schema',
+    'warning',
+    o.obj_name,
+    'Catalog has active schema tag association, but the physical schema was not found.'
+FROM active_tag_objects o
+WHERE o.otype = 's'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM physical_schemas s
+      WHERE s.schema_name = o.obj_name
+  )
+
+UNION ALL
+
+SELECT
+    'active_relation_tag_without_relation',
+    'warning',
+    o.obj_name,
+    'Catalog has active relation tag association, but the physical relation was not found.'
+FROM active_tag_objects o
+WHERE o.otype = 'r'
+  AND CASE
+        WHEN o.otype = 'r' THEN to_regclass(o.obj_name) IS NULL
+        ELSE false
+      END
+
+UNION ALL
+
+SELECT
+    'active_column_tag_without_column',
+    'warning',
+    o.obj_name,
+    'Catalog has active column tag association, but the physical column was not found.'
+FROM active_tag_objects o
+WHERE o.otype = 'c'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM pg_class c
+      JOIN pg_namespace n
+        ON n.oid = c.relnamespace
+      JOIN pg_attribute a
+        ON a.attrelid = c.oid
+       AND a.attname = o.parts[3]
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+      WHERE n.nspname = o.parts[1]
+        AND c.relname = o.parts[2]
+  )
+ORDER BY severity, check_name, obj_name
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION gvlt.medallion_objects(
+    p_schema_name text DEFAULT NULL
+) RETURNS TABLE(
+    schema_name text,
+    medallion_tag text,
+    obj_name text,
+    obj_type text,
+    relkind text,
+    tags text[]
+) AS $$
+WITH med AS (
+    SELECT DISTINCT
+        o.obj_name AS schema_name,
+        o.tag_name AS medallion_tag
+    FROM gvlt.tag_obj o
+    JOIN gvlt.tag t
+      ON t.tag_name = o.tag_name
+    WHERE o.is_active
+      AND t.is_active
+      AND t.role = 'medallion'
+      AND (p_schema_name IS NULL OR o.obj_name = lower(trim(p_schema_name)))
+), objs AS (
+    SELECT
+        m.schema_name,
+        m.medallion_tag,
+        m.schema_name AS obj_name,
+        'schema'::text AS obj_type,
+        NULL::text AS relkind
+    FROM med m
+
+    UNION ALL
+
+    SELECT
+        m.schema_name,
+        m.medallion_tag,
+        (n.nspname || '.' || c.relname)::text AS obj_name,
+        'relation'::text AS obj_type,
+        lib.pgddl_relkind_to_objtype(c.relkind) AS relkind
+    FROM med m
+    JOIN pg_namespace n
+      ON n.nspname = m.schema_name
+    JOIN pg_class c
+      ON c.relnamespace = n.oid
+     AND c.relkind IN ('r','v','m','f','p')
+)
+SELECT
+    objs.schema_name,
+    objs.medallion_tag,
+    objs.obj_name,
+    objs.obj_type,
+    objs.relkind,
+    (
+        SELECT array_agg(o.tag_name ORDER BY o.tag_name)
+        FROM gvlt.tag_obj o
+        JOIN gvlt.tag t
+          ON t.tag_name = o.tag_name
+        WHERE o.obj_name = objs.obj_name
+          AND o.is_active
+          AND t.is_active
+    ) AS tags
+FROM objs
+ORDER BY schema_name, obj_type, obj_name
+$$ LANGUAGE SQL;
 
 CREATE VIEW gvlt.vw01_medallion AS
   SELECT o.*, t.tag_desc
