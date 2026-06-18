@@ -7,11 +7,13 @@ CREATE OR REPLACE FUNCTION gvlt.medallion_upsert(
 DECLARE
     v_mtype text;
     v_schema_name text;
+    v_tags text[];
 BEGIN
     v_schema_name := lower(trim(p_schema_name));
     -- Validação do nome via regex/lógica medalhão já existente
     -- v_mtype := gvlt.medallion_schema_getype(p_schema_name);
     v_mtype := gvlt.schema_name_validate(v_schema_name);  -- null ou '!' erro ou mtype.
+    v_tags := gvlt.schema_name_tags(v_schema_name);
     IF v_mtype IS NULL THEN
         RETURN 'ERRO: O nome do schema ' || p_schema_name || ' não segue o padrão medalhão (bronze/silver/gold).';
     ELSIF v_mtype='!' THEN
@@ -22,7 +24,7 @@ BEGIN
     END IF;
 
     INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active, ctrl_config)
-    VALUES (v_mtype, v_schema_name, true, p_info)
+    SELECT unnest(v_tags), v_schema_name, true, p_info
     ON CONFLICT (obj_name, tag_name)
     DO UPDATE SET
         is_active = true,
@@ -43,18 +45,20 @@ RETURNS event_trigger AS $$
 DECLARE
     obj record;
     m_type text;
+    v_tags text[];
 BEGIN
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE object_type = 'schema'
     LOOP
         m_type := gvlt.schema_name_validate(obj.object_identity);
+        v_tags := gvlt.schema_name_tags(obj.object_identity);
         -- NULL=NOT(is_medallion) '!'=error.
         IF m_type IS NOT NULL THEN -- is_medallion
           IF m_type!='!' THEN  -- Bronze/Silver/Gold
             INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active)
-            VALUES (m_type,  obj.object_identity, true)
+            SELECT unnest(v_tags), lower(trim(obj.object_identity)), true
             ON CONFLICT (obj_name, tag_name)
             DO UPDATE SET is_active = true;
-            RAISE NOTICE 'pg_govLite: Schema % registrado como %!', obj.object_identity, m_type;
+            RAISE NOTICE 'pg_govLite: Schema % registrado com tags %!', obj.object_identity, v_tags;
           ELSE
             RAISE EXCEPTION 'pg_govLite ERROR, schema % candidato a medalhão mas com tags ausentes: %',
                obj.object_identity,

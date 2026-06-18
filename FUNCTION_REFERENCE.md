@@ -509,6 +509,168 @@ assert02_obj.relation | CNPJ     | t
 assert02_obj.relation | CPF      | t
 ```
 
+### `gvlt.tag_include(text, text, text, text DEFAULT NULL, jsonb DEFAULT NULL, jsonb DEFAULT NULL) RETURNS boolean`
+
+Use-case friendly API for creating or updating a governed tag. It validates the
+role, validates the optional RDF prefix, inserts a new tag when needed, and
+reactivates an existing tag with the same case-insensitive name.
+
+```sql
+SELECT gvlt.tag_include(
+  'climate',
+  'semantic',
+  'Long-term statistical characterization of atmospheric conditions in a region.',
+  'wd:Q7937'
+);
+```
+
+Expected result:
+
+```text
+t
+```
+
+### `gvlt.tagobj_include(text, text[]) RETURNS boolean`
+
+Use-case friendly API for associating one governed tag with many objects. It is
+intended for tutorial and issue-curated cases where a single semantic tag must
+be applied to several relations or columns.
+
+```sql
+SELECT gvlt.tagobj_include(
+  'climate',
+  ARRAY[
+    'tutcase_bronze.br_climate1',
+    'tutcase_grid_silver.br_rr_cliemate1_mvw01resample'
+  ]
+);
+```
+
+Expected result:
+
+```text
+t
+```
+
+### `gvlt.tagobj_include(text[], text[]) RETURNS boolean`
+
+Use-case friendly API for associating many governed tags with many objects.
+
+```sql
+SELECT gvlt.tagobj_include(
+  ARRAY['GEO', 'Tier:2'],
+  ARRAY['geo_silver.ibge_municipality']
+);
+```
+
+Expected result:
+
+```text
+t
+```
+
+### `gvlt.tag_disable(text, text DEFAULT NULL) RETURNS boolean`
+
+Deactivates a governed tag without deleting catalog history. The optional reason
+is stored in `gvlt.tag.info`.
+
+```sql
+SELECT gvlt.tag_disable('climate', 'replaced by a more specific tag');
+```
+
+### `gvlt.tagobj_disable(text, text[] DEFAULT NULL) RETURNS boolean`
+
+Deactivates object/tag associations. When the tag array is `NULL`, all active
+associations for the object are deactivated.
+
+```sql
+SELECT gvlt.tagobj_disable(
+  'geo_silver.ibge_municipality',
+  ARRAY['Tier:2']
+);
+```
+
+### `gvlt.obj_tags(text, boolean DEFAULT true) RETURNS TABLE(...)`
+
+Lists tags associated with an object, joining `gvlt.tag_obj` to `gvlt.tag`.
+
+```sql
+SELECT tag_name, role
+FROM gvlt.obj_tags('hlth_gold.vw_municipality_health_access');
+```
+
+### `gvlt.obj_has_tags(text, text[]) RETURNS boolean`
+
+Returns `true` when an object has all required active tags and those tags are
+active governed tags.
+
+```sql
+SELECT gvlt.obj_has_tags(
+  'hlth_gold.vw_municipality_health_access',
+  ARRAY['isProduct', 'Tier:1']
+);
+```
+
+### `gvlt.usecase_assert_obj_tags(text, text, text[]) RETURNS boolean`
+
+Use-case assertion helper. It returns `true` when all tags are present and raises
+an exception with the case ID when a required tag is missing.
+
+```sql
+SELECT gvlt.usecase_assert_obj_tags(
+  'SpCs01',
+  'hlth_gold.vw_municipality_health_access',
+  ARRAY['HLTH', 'GEO', 'Gold', 'Prod', 'isProduct', 'Tier:1']
+);
+```
+
+### `gvlt.tag_get(text) RETURNS TABLE(...)`
+
+Returns the catalog row for one governed tag, matched case-insensitively.
+
+```sql
+SELECT *
+FROM gvlt.tag_get('climate');
+```
+
+### `gvlt.tag_search(text DEFAULT NULL, text DEFAULT NULL, boolean DEFAULT true) RETURNS TABLE(...)`
+
+Searches governed tags by name, description, RDF ID, and optional role.
+
+```sql
+SELECT tag_name, role, tag_desc
+FROM gvlt.tag_search('health', 'macrodomain');
+```
+
+### `gvlt.relation_columns(text) RETURNS TABLE(...)`
+
+Lists physical columns for a relation together with active column tags.
+
+```sql
+SELECT column_name, data_type, tags
+FROM gvlt.relation_columns('hlth_gold.vw_municipality_health_access');
+```
+
+### `gvlt.governance_check() RETURNS TABLE(...)`
+
+Runs catalog consistency checks for inactive tags with active objects, missing
+physical schemas/relations/columns, and Medallion schemas without expected
+catalog tags.
+
+```sql
+SELECT *
+FROM gvlt.governance_check();
+```
+
+### `gvlt.medallion_objects(text DEFAULT NULL) RETURNS TABLE(...)`
+
+Lists governed Medallion schemas and their relations, including active tags.
+
+```sql
+SELECT *
+FROM gvlt.medallion_objects('hlth_gold');
+```
+
 ## `src/inst03-fw_govRules.sql`
 
 Governance-rule functions and DDL event triggers for Medallion schemas.
