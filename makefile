@@ -13,6 +13,7 @@ DBPASS =
 DBNAME =
 TRASHDB = dbtest_trash
 TRASHDB_VERS = pg16-psql17
+PSQL_DIFF_LINE_SED = s|^psql:([^:]+):[0-9]+:|psql:\1:<LINE>:|
 
 PSQL_ENV = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)')
 PSQL_CMD = $(PSQL_ENV) $(PSQL) $(PSQL_FLAGS) $(DBURL)
@@ -20,7 +21,9 @@ PSQL_CMD = $(PSQL_ENV) $(PSQL) $(PSQL_FLAGS) $(DBURL)
 # only for TRASHDB:
 DBURL_prefix = postgres://postgres@localhost
 PSQL_ENV2 = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(TRASHDB)')
-PSQL_CMD2 = $(PSQL_ENV2) $(PSQL) $(if $(strip $(PSQL_ENV2)),"","$(DBURL_prefix)/$(TRASHDB)")
+PSQL_DB2 = $(if $(strip $(PSQL_ENV2)),"","$(DBURL_prefix)/$(TRASHDB)")
+PSQL_CMD2 = $(PSQL_ENV2) $(PSQL) $(PSQL_DB2)
+PSQL_CMD2_STOP = $(PSQL_ENV2) $(PSQL) $(PSQL_FLAGS) $(PSQL_DB2)
 
 # conly for drop/create TRASHDB, using db=postgres:
 PSQL_ENV3 = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='postgres')
@@ -87,10 +90,12 @@ dropDbTest:
 	$(PSQL_CMD3) -c "CREATE DATABASE $(TRASHDB);"
 	@for f in $(CORE_SQL); do \
 	  echo ">>> Executando $$f"; \
-	  $(PSQL_CMD2) -f "$$f"; \
+	  $(PSQL_CMD2_STOP) -f "$$f"; \
 	done
 	@echo ">>> Executing psql-text-diff asserts on fresh $(TRASHDB):"
 	$(PSQL_CMD2) -f ./src/assert02-psqlDiff.sql > /tmp/trash.txt 2>&1
-	diff -w -b /tmp/trash.txt  "./assets/assert02-res-psqlDiff.$(TRASHDB_VERS).txt"
-	@echo " ... if no diff, rm /tmp/trash.txt"
+	sed -E '$(PSQL_DIFF_LINE_SED)' /tmp/trash.txt > /tmp/trash.normalized.txt
+	sed -E '$(PSQL_DIFF_LINE_SED)' "./assets/assert02-res-psqlDiff.$(TRASHDB_VERS).txt" > /tmp/assert02-res-psqlDiff.normalized.txt
+	diff -w -b /tmp/trash.normalized.txt /tmp/assert02-res-psqlDiff.normalized.txt
+	@echo " ... if no diff, rm /tmp/trash.txt /tmp/trash.normalized.txt /tmp/assert02-res-psqlDiff.normalized.txt"
 	@echo
