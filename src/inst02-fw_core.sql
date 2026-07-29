@@ -111,17 +111,43 @@ INSERT INTO gvlt.tag (tag_name,role,tag_desc,rdf_id,ctrl_config) VALUES -- Exemp
 -- Dados Silver e Gold podem receber isProduct, Bronze não (basta criar view da tabela Bronze na Prata se for equivalente). Ideal apenas Gold.
 
 CREATE VIEW gvlt.vw01_tag AS
-  SELECT g.*, r.role_desc
-    --, CASE WHEN g.role='semantic' AND g.rdf_id IS NULL THEN 'error' ELSE 'ok' END AS error
+  SELECT g.role,
+         g.tag_name,
+         g.rdf_id,
+         g.tag_type,
+         g.tag_desc || ' [' || r.role_desc || ']' AS tag_desc
   FROM (
-    SELECT role, tag_name, rdf_id,
+    SELECT role,
+           tag_name,
+           rdf_id,
            CASE WHEN tag_name ~ '\.' THEN 'hierarchical' ELSE 'simple' END
-           || CASE WHEN tag_name ~ ':' THEN ' valued' ELSE '' END as tag_type
+           || CASE WHEN tag_name ~ ':' THEN ' valued' ELSE '' END AS tag_type,
+           tag_desc
     FROM gvlt.tag
   ) g
   INNER JOIN gvlt.role_config r
-  ON r.role_name=g.role
-  ORDER BY 1,2
+    ON r.role_name = g.role
+  ORDER BY g.role, g.tag_name
+;
+
+CREATE VIEW gvlt.vw01_stag AS
+  SELECT tag_name,
+         rdf_id,
+         CASE WHEN tag_name ~ '\.' THEN 'hierarchical' ELSE 'simple' END
+         || CASE WHEN tag_name ~ ':' THEN ' valued' ELSE '' END AS tag_type,
+         tag_desc
+  FROM gvlt.tag
+  WHERE role = 'semantic'
+;
+
+CREATE VIEW gvlt.vw01_gtag AS
+  SELECT role,
+         tag_name,
+         rdf_id,
+         tag_type,
+         tag_desc
+  FROM gvlt.vw01_tag
+  WHERE role != 'semantic'
 ;
 
 --- tag controll:

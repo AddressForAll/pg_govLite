@@ -7,6 +7,7 @@ CREATE OR REPLACE FUNCTION gvlt.medallion_upsert(
 DECLARE
     v_mtype text;
     v_schema_name text;
+    v_schema_oid oid;
 BEGIN
     v_schema_name := lower(trim(p_schema_name));
     -- Validação do nome via regex/lógica medalhão já existente
@@ -21,10 +22,16 @@ BEGIN
             PERFORM lib.dynamic_execute(format('CREATE SCHEMA %I', v_schema_name));
     END IF;
 
-    INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active, ctrl_config)
-    VALUES (v_mtype, v_schema_name, true, p_info)
+    SELECT oid
+    INTO v_schema_oid
+    FROM pg_namespace
+    WHERE nspname = v_schema_name;
+
+    INSERT INTO gvlt.tag_obj (tag_name, obj_name, obj_id, is_active, ctrl_config)
+    VALUES (v_mtype, v_schema_name, v_schema_oid, true, p_info)
     ON CONFLICT (obj_name, tag_name)
     DO UPDATE SET
+        obj_id = EXCLUDED.obj_id,
         is_active = true,
         ctrl_config = COALESCE(EXCLUDED.ctrl_config, gvlt.tag_obj.ctrl_config)
     ;
@@ -43,26 +50,42 @@ RETURNS event_trigger AS $$
 DECLARE
     obj record;
     m_type text;
+    v_schema_name text;
 BEGIN
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE object_type = 'schema'
     LOOP
-        m_type := gvlt.schema_name_validate(obj.object_identity);
+        v_schema_name := lower(trim(obj.object_identity));
+        m_type := gvlt.schema_name_validate(v_schema_name);
         -- NULL=NOT(is_medallion) '!'=error.
         IF m_type IS NOT NULL THEN -- is_medallion
           IF m_type!='!' THEN  -- Bronze/Silver/Gold
-            INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active)
-            VALUES (m_type,  obj.object_identity, true)
+            -- Preserve the previous name as inactive history when a schema is renamed.
+            UPDATE gvlt.tag_obj
+            SET is_active = false
+            WHERE obj_id = obj.objid
+              AND obj_name != v_schema_name;
+
+            INSERT INTO gvlt.tag_obj (tag_name, obj_name, obj_id, is_active)
+            VALUES (m_type, v_schema_name, obj.objid, true)
             ON CONFLICT (obj_name, tag_name)
-            DO UPDATE SET is_active = true;
-            RAISE NOTICE 'pg_govLite: Schema % registrado como %!', obj.object_identity, m_type;
+            DO UPDATE SET
+                obj_id = EXCLUDED.obj_id,
+                is_active = true;
+            RAISE NOTICE 'pg_govLite: Schema % registrado como %!', v_schema_name, m_type;
           ELSE
             RAISE EXCEPTION 'pg_govLite ERROR, schema % candidato a medalhão mas com tags ausentes: %',
-               obj.object_identity,
-               array_to_string( gvlt.schema_name_nontag(obj.object_identity) , ',' )
+               v_schema_name,
+               array_to_string(gvlt.schema_name_nontag(v_schema_name), ',')
             ;
           END IF; -- /vality
         ELSE  -- NOT(is_medallion)
-            RAISE NOTICE 'pg_govLite: Schema não-governado ok, % não é medalhão', obj.object_identity;
+            -- A governed schema renamed outside the convention keeps history,
+            -- but no governed association remains active for the physical schema.
+            UPDATE gvlt.tag_obj
+            SET is_active = false
+            WHERE obj_id = obj.objid;
+
+            RAISE NOTICE 'pg_govLite: Schema não-governado ok, % não é medalhão', v_schema_name;
         END IF;
     END LOOP;
 END;
@@ -70,7 +93,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE EVENT TRIGGER et_medallion_insert
 ON ddl_command_end
-WHEN TAG IN ('CREATE SCHEMA')
+WHEN TAG IN ('CREATE SCHEMA', 'ALTER SCHEMA')
 EXECUTE FUNCTION gvlt.trig_medallion_upsert_event();
 
 ---------------
@@ -83,7 +106,8 @@ BEGIN
     LOOP
         UPDATE gvlt.tag_obj
         SET is_active = false
-        WHERE obj_name = obj.object_identity; -- tag_name?
+        WHERE obj_id = obj.objid
+           OR obj_name = lower(trim(obj.object_identity));
 
         IF FOUND THEN
             RAISE NOTICE 'pg_govLite: medallion schema % flagged as non-active', obj.object_identity;

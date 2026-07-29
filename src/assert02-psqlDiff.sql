@@ -10,9 +10,60 @@ FROM gvlt.vw01_tag
 DO $do$
 DECLARE
   v_text text;
+  v_expected_error boolean;
 BEGIN
 
 PERFORM set_config('client_min_messages', 'warning', true);
+
+-- Exercise the production trigger before installing the multi-tag test helper.
+EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_bronze CASCADE';
+EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_dev_bronze CASCADE';
+DELETE FROM gvlt.tag_obj
+WHERE obj_name IN ('tsttmp_bronze', 'tsttmp_dev_bronze');
+
+EXECUTE 'CREATE SCHEMA tsttmp_bronze';
+v_expected_error := false;
+BEGIN
+  EXECUTE 'ALTER SCHEMA tsttmp_bronze RENAME TO tsttmp_missing_bronze';
+EXCEPTION
+  WHEN OTHERS THEN
+    v_expected_error := SQLERRM LIKE '%tags ausentes: missing%';
+END;
+ASSERT v_expected_error,
+  'Error: production trigger should reject ALTER SCHEMA with a missing governed tag';
+ASSERT EXISTS (
+  SELECT 1
+  FROM information_schema.schemata
+  WHERE schema_name = 'tsttmp_bronze'
+),
+  'Error: rejected ALTER SCHEMA should preserve the original schema';
+ASSERT NOT EXISTS (
+  SELECT 1
+  FROM information_schema.schemata
+  WHERE schema_name = 'tsttmp_missing_bronze'
+),
+  'Error: rejected ALTER SCHEMA should roll back the invalid schema name';
+
+EXECUTE 'ALTER SCHEMA tsttmp_bronze RENAME TO tsttmp_dev_bronze';
+ASSERT (
+  SELECT count(*) = 1 AND bool_and(NOT is_active)
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'tsttmp_bronze'
+    AND tag_name = 'Bronze'
+),
+  'Error: valid ALTER SCHEMA should deactivate the catalog entry for the previous name';
+ASSERT (
+  SELECT count(*) = 1
+     AND bool_and(is_active)
+     AND bool_and(obj_id = (SELECT oid::bigint FROM pg_namespace WHERE nspname = 'tsttmp_dev_bronze'))
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'tsttmp_dev_bronze'
+    AND tag_name = 'Bronze'
+),
+  'Error: valid ALTER SCHEMA should register the new name with the same schema OID';
+EXECUTE 'DROP SCHEMA tsttmp_dev_bronze';
+DELETE FROM gvlt.tag_obj
+WHERE obj_name IN ('tsttmp_bronze', 'tsttmp_dev_bronze');
 
 EXECUTE $sql$
 CREATE OR REPLACE FUNCTION gvlt.schema_name_tags(p_schema_name text) RETURNS text[] AS $f$
@@ -60,16 +111,27 @@ BEGIN
         v_tags := gvlt.schema_name_tags(v_schema_name);
 
         IF v_tags IS NULL THEN
+            UPDATE gvlt.tag_obj
+            SET is_active = false
+            WHERE obj_id = obj.objid;
+
             RAISE NOTICE 'pg_govLite: Schema nao-governado ok, % nao possui tags governadas no padrao de nome', v_schema_name;
         ELSIF v_tags = ARRAY['!']::text[] THEN
             RAISE EXCEPTION 'pg_govLite ERROR, schema % candidato a tagging mas com tags ausentes: %',
                v_schema_name,
                array_to_string(gvlt.schema_name_nontag(v_schema_name), ',');
         ELSE
-            INSERT INTO gvlt.tag_obj (tag_name, obj_name, is_active)
-            SELECT unnest(v_tags), v_schema_name, true
+            UPDATE gvlt.tag_obj
+            SET is_active = false
+            WHERE obj_id = obj.objid
+              AND obj_name != v_schema_name;
+
+            INSERT INTO gvlt.tag_obj (tag_name, obj_name, obj_id, is_active)
+            SELECT unnest(v_tags), v_schema_name, obj.objid, true
             ON CONFLICT (obj_name, tag_name)
-            DO UPDATE SET is_active = true;
+            DO UPDATE SET
+                obj_id = EXCLUDED.obj_id,
+                is_active = true;
 
             RAISE NOTICE 'pg_govLite: Schema % registrado com tags %!', v_schema_name, v_tags;
         END IF;
@@ -91,7 +153,8 @@ BEGIN
 
         UPDATE gvlt.tag_obj
         SET is_active = false
-        WHERE obj_name = v_schema_name;
+        WHERE obj_id = obj.objid
+           OR obj_name = v_schema_name;
 
         IF FOUND THEN
             RAISE NOTICE 'pg_govLite: Tags do schema % marcadas como inativas', v_schema_name;
@@ -103,7 +166,7 @@ $sql$;
 
 EXECUTE 'DROP EVENT TRIGGER IF EXISTS et_medallion_insert';
 EXECUTE 'DROP EVENT TRIGGER IF EXISTS et_medallion_drop';
-EXECUTE 'CREATE EVENT TRIGGER et_medallion_insert ON ddl_command_end WHEN TAG IN (''CREATE SCHEMA'') EXECUTE FUNCTION gvlt.trig_schema_tags_upsert_event()';
+EXECUTE 'CREATE EVENT TRIGGER et_medallion_insert ON ddl_command_end WHEN TAG IN (''CREATE SCHEMA'', ''ALTER SCHEMA'') EXECUTE FUNCTION gvlt.trig_schema_tags_upsert_event()';
 EXECUTE 'CREATE EVENT TRIGGER et_medallion_drop ON sql_drop WHEN TAG IN (''DROP SCHEMA'') EXECUTE FUNCTION gvlt.trig_schema_tags_disable_event()';
 
 -- Cleanup from interrupted previous runs.
@@ -181,6 +244,31 @@ ASSERT gvlt.govtag_list_exclude(ARRAY['CPF', 'CNPJ', 'vatID'], 'CNPJ') = '{CPF,v
   'Error: gvlt.govtag_list_exclude(text[],text) did not remove one tag';
 ASSERT gvlt.govtag_list_exclude(ARRAY['CPF', 'CNPJ', 'vatID'], ARRAY['CNPJ', 'vatID']) = '{CPF}'::text[],
   'Error: gvlt.govtag_list_exclude(text[],text[]) did not remove multiple tags';
+
+ASSERT (
+  SELECT array_agg(column_name::text ORDER BY ordinal_position)
+  FROM information_schema.columns
+  WHERE table_schema = 'gvlt'
+    AND table_name = 'vw01_tag'
+) = '{role,tag_name,rdf_id,tag_type,tag_desc}'::text[],
+  'Error: gvlt.vw01_tag should expose the documented tag catalog columns';
+ASSERT EXISTS (SELECT 1 FROM gvlt.vw01_stag)
+   AND NOT EXISTS (
+     SELECT 1
+     FROM gvlt.vw01_stag s
+     JOIN gvlt.tag t USING (tag_name)
+     WHERE t.role != 'semantic'
+   ),
+  'Error: gvlt.vw01_stag should contain only semantic tags';
+ASSERT EXISTS (SELECT 1 FROM gvlt.vw01_gtag)
+   AND NOT EXISTS (SELECT 1 FROM gvlt.vw01_gtag WHERE role = 'semantic'),
+  'Error: gvlt.vw01_gtag should contain only non-semantic governed tags';
+ASSERT (SELECT tag_type FROM gvlt.vw01_stag WHERE tag_name = 'Organization.Medical') = 'hierarchical',
+  'Error: gvlt.vw01_stag should classify dotted tags as hierarchical';
+ASSERT (SELECT tag_type FROM gvlt.vw01_gtag WHERE tag_name = 'Tier:1') = 'simple valued',
+  'Error: gvlt.vw01_gtag should classify colon tags as valued';
+ASSERT (SELECT tag_desc FROM gvlt.vw01_tag WHERE tag_name = 'CPF') LIKE '%[Semantic controll]',
+  'Error: gvlt.vw01_tag should append the role description to tag_desc';
 
 ASSERT gvlt.schema_name_validate('q_bronze') = 'Bronze',
   'Error: gvlt.schema_name_validate(q_bronze) should return Bronze';
@@ -349,16 +437,26 @@ EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_stage_bronze CASCADE';
 DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'assert02%';
 DELETE FROM gvlt.tag_obj WHERE obj_name IN ('t_bronze', 'tsttmp_silver', 'tsttmp_stage_bronze');
 
+-- Restore the production triggers after the multi-tag helper assertions.
+EXECUTE 'DROP EVENT TRIGGER IF EXISTS et_medallion_insert';
+EXECUTE 'DROP EVENT TRIGGER IF EXISTS et_medallion_drop';
+EXECUTE 'CREATE EVENT TRIGGER et_medallion_insert ON ddl_command_end WHEN TAG IN (''CREATE SCHEMA'', ''ALTER SCHEMA'') EXECUTE FUNCTION gvlt.trig_medallion_upsert_event()';
+EXECUTE 'CREATE EVENT TRIGGER et_medallion_drop ON sql_drop WHEN TAG IN (''DROP SCHEMA'') EXECUTE FUNCTION gvlt.trig_medallion_disable_event()';
+
 END $do$;
 
-SELECT * FROM gvlt.vw01_medallion; -- show current tags (expected demo list)
+SELECT obj_name, tag_name, is_active, ctrl_config, tag_desc
+FROM gvlt.vw01_medallion
+ORDER BY obj_name, tag_name; -- show current tags (expected demo list)
 
 -- create schema com:
 CREATE SCHEMA q_bronze;  CREATE SCHEMA q_silver;   CREATE SCHEMA q_gold;
 -- create schema sem:
 CREATE SCHEMA q_bronze_q; CREATE SCHEMA q_prata; CREATE SCHEMA q_gold_q;
 
-SELECT * FROM gvlt.vw01_medallion; -- listando
+SELECT obj_name, tag_name, is_active, ctrl_config, tag_desc
+FROM gvlt.vw01_medallion
+ORDER BY obj_name, tag_name; -- listando
 
 -- create table com:
 CREATE TABLE q_bronze.t (x int);  CREATE TABLE q_silver.t (x int);   CREATE TABLE q_gold.t (x int);
@@ -370,11 +468,15 @@ SELECT gvlt.medallion_upsert('q_bronze','{"q":0}');
 SELECT gvlt.medallion_upsert('TSTDEMO_silver','{"x":1}');
 SELECT gvlt.medallion_upsert('geo_gold','{"y":2}');
 
-SELECT * FROM gvlt.vw01_medallion; -- listando
+SELECT obj_name, tag_name, is_active, ctrl_config, tag_desc
+FROM gvlt.vw01_medallion
+ORDER BY obj_name, tag_name; -- listando
 
 -- drop schema com:
 DROP SCHEMA test_bronze;  DROP SCHEMA test_silver;   DROP SCHEMA test_gold;
 -- drop schema sem:
 DROP SCHEMA test_bronze_test; DROP SCHEMA test_prata; DROP SCHEMA test_gold_test;
 
-SELECT * FROM gvlt.vw01_medallion; -- listando
+SELECT obj_name, tag_name, is_active, ctrl_config, tag_desc
+FROM gvlt.vw01_medallion
+ORDER BY obj_name, tag_name; -- listando

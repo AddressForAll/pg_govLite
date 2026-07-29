@@ -1,57 +1,57 @@
-    role     |       tag_name       |         rdf_id         |   tag_type    |                         role_desc                         | error 
--------------+----------------------+------------------------+---------------+-----------------------------------------------------------+-------
- dprod       | isProduct            |                        | simple        | Data Product                                              | ok
- dq          | Tier                 |                        | simple        | Data Quality                                              | ok
- dq          | Tier:1               |                        | simple valued | Data Quality                                              | ok
- dq          | Tier:2               |                        | simple valued | Data Quality                                              | ok
- dq          | Tier:3               |                        | simple valued | Data Quality                                              | ok
- dq          | Tier:4               |                        | simple valued | Data Quality                                              | ok
- dsec        | isPII                |                        | simple        | Data Security                                             | ok
- macrodomain | CLIPF                |                        | simple        | Name or acronym of a Macro-Domain, sense Domain Data Mesh | ok
- macrodomain | CLIPJ                |                        | simple        | Name or acronym of a Macro-Domain, sense Domain Data Mesh | ok
- macrodomain | GEO                  |                        | simple        | Name or acronym of a Macro-Domain, sense Domain Data Mesh | ok
- macrodomain | TSTDEMO              |                        | simple        | Name or acronym of a Macro-Domain, sense Domain Data Mesh | ok
- macrodomain | TSTTMP               |                        | simple        | Name or acronym of a Macro-Domain, sense Domain Data Mesh | ok
- medallion   | Bronze               |                        | simple        | Medallion layers                                          | ok
- medallion   | Gold                 |                        | simple        | Medallion layers                                          | ok
- medallion   | Silver               |                        | simple        | Medallion layers                                          | ok
- purpose     | Bkp                  |                        | simple        | Prod/Dev/Stage/Backup layers                              | ok
- purpose     | Dev                  |                        | simple        | Prod/Dev/Stage/Backup layers                              | ok
- purpose     | Prod                 |                        | simple        | Prod/Dev/Stage/Backup layers                              | ok
- purpose     | Stage                |                        | simple        | Prod/Dev/Stage/Backup layers                              | ok
- semantic    | CNPJ                 | wd:Q15816867           | simple        | Semantic controll                                         | ok
- semantic    | CPF                  | wd:Q5016244            | simple        | Semantic controll                                         | ok
- semantic    | ID                   | sh:identifier          | simple        | Semantic controll                                         | ok
- semantic    | Organization         | sh:Person              | simple        | Semantic controll                                         | ok
- semantic    | Organization.Medical | sh:MedicalOrganization | hierarchical  | Semantic controll                                         | ok
- semantic    | Person               | sh:Person              | simple        | Semantic controll                                         | ok
- semantic    | vatID                | sh:vatID               | simple        | Semantic controll                                         | ok
+    role     |       tag_name       |         rdf_id         |   tag_type    |                                        tag_desc                                        | error
+-------------+----------------------+------------------------+---------------+----------------------------------------------------------------------------------------+-------
+ dprod       | isProduct            |                        | simple        | Is Data Product [Data Product]                                                         | ok
+ dq          | Tier                 |                        | simple        | Tier [Data Quality]                                                                    | ok
+ dq          | Tier:1               |                        | simple valued | Tier I [Data Quality]                                                                  | ok
+ dq          | Tier:2               |                        | simple valued | Tier II [Data Quality]                                                                 | ok
+ dq          | Tier:3               |                        | simple valued | Tier III [Data Quality]                                                                | ok
+ dq          | Tier:4               |                        | simple valued | Tier IV [Data Quality]                                                                 | ok
+ dsec        | isPII                |                        | simple        | Is Personally Identifiable Information [Data Security]                                 | ok
+ macrodomain | CLIPF                |                        | simple        | Clinte PF [Name or acronym of a Macro-Domain, sense Domain Data Mesh]                  | ok
+ macrodomain | CLIPJ                |                        | simple        | Cliente PJ [Name or acronym of a Macro-Domain, sense Domain Data Mesh]                 | ok
+ macrodomain | GEO                  |                        | simple        | Geo [Name or acronym of a Macro-Domain, sense Domain Data Mesh]                        | ok
+ macrodomain | TSTDEMO              |                        | simple        | TesteDemo [Name or acronym of a Macro-Domain, sense Domain Data Mesh]                  | ok
+ macrodomain | TSTTMP               |                        | simple        | TesteTemp [Name or acronym of a Macro-Domain, sense Domain Data Mesh]                  | ok
+ medallion   | Bronze               |                        | simple        | Medallion Bronze [Medallion layers]                                                    | ok
+ medallion   | Gold                 |                        | simple        | Medallion Gold [Medallion layers]                                                      | ok
+ medallion   | Silver               |                        | simple        | Medallion Silver [Medallion layers]                                                    | ok
+ purpose     | Bkp                  |                        | simple        | Backup storing [Prod/Dev/Stage/Backup layers]                                          | ok
+ purpose     | Dev                  |                        | simple        | Data Under Development or temporarily storing for tests [Prod/Dev/Stage/Backup layers] | ok
+ purpose     | Prod                 |                        | simple        | Data Product, ready for delivery [Prod/Dev/Stage/Backup layers]                        | ok
+ purpose     | Stage                |                        | simple        | Staging data, temporarily storing raw data [Prod/Dev/Stage/Backup layers]              | ok
+ semantic    | CNPJ                 | wd:Q15816867           | simple        | Cadastro Nacional da Pessoa Juridica [Semantic controll]                               | ok
+ semantic    | CPF                  | wd:Q5016244            | simple        | Código da Pessoa Fisica [Semantic controll]                                            | ok
+ semantic    | ID                   | sh:identifier          | simple        | Identificador qualquer [Semantic controll]                                             | ok
+ semantic    | Organization         | sh:Person              | simple        | Identificador qualquer [Semantic controll]                                             | ok
+ semantic    | Organization.Medical | sh:MedicalOrganization | hierarchical  | Identificador qualquer [Semantic controll]                                             | ok
+ semantic    | Person               | sh:Person              | simple        | Identificador qualquer [Semantic controll]                                             | ok
+ semantic    | vatID                | sh:vatID               | simple        | CPF ou CNPJ ou gringo [Semantic controll]                                              | ok
 (26 rows)
 
-psql:src/assert02-psqlDiff.sql:352: WARNING:  Objeto invalido para tagging: assert02_obj.relation.column.extra
-psql:src/assert02-psqlDiff.sql:352: WARNING:  Nenhuma das tags fornecidas e governada valida.
+psql:src/assert02-psqlDiff.sql:446: WARNING:  Objeto invalido para tagging: assert02_obj.relation.column.extra
+psql:src/assert02-psqlDiff.sql:446: WARNING:  Nenhuma das tags fornecidas e governada valida.
 DO
- obj_name | obj_id | tag_name | is_active | ctrl_config | tag_desc 
-----------+--------+----------+-----------+-------------+----------
+ obj_name | tag_name | is_active | ctrl_config | tag_desc
+----------+----------+-----------+-------------+----------
 (0 rows)
 
-psql:src/assert02-psqlDiff.sql:357: NOTICE:  pg_govLite: Schema q_bronze registrado com tags {Bronze}!
+psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_bronze registrado como Bronze!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:357: NOTICE:  pg_govLite: Schema q_silver registrado com tags {Silver}!
+psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_silver registrado como Silver!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:357: NOTICE:  pg_govLite: Schema q_gold registrado com tags {Gold}!
+psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_gold registrado como Gold!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:359: NOTICE:  pg_govLite: Schema nao-governado ok, q_bronze_q nao possui tags governadas no padrao de nome
+psql:src/assert02-psqlDiff.sql:455: NOTICE:  pg_govLite: Schema não-governado ok, q_bronze_q não é medalhão
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:359: NOTICE:  pg_govLite: Schema nao-governado ok, q_prata nao possui tags governadas no padrao de nome
+psql:src/assert02-psqlDiff.sql:455: NOTICE:  pg_govLite: Schema não-governado ok, q_prata não é medalhão
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:359: NOTICE:  pg_govLite: Schema nao-governado ok, q_gold_q nao possui tags governadas no padrao de nome
+psql:src/assert02-psqlDiff.sql:455: NOTICE:  pg_govLite: Schema não-governado ok, q_gold_q não é medalhão
 CREATE SCHEMA
- obj_name | obj_id | tag_name | is_active | ctrl_config |     tag_desc     
-----------+--------+----------+-----------+-------------+------------------
- q_bronze |        | Bronze   | t         |             | Medallion Bronze
- q_silver |        | Silver   | t         |             | Medallion Silver
- q_gold   |        | Gold     | t         |             | Medallion Gold
+ obj_name | tag_name | is_active | ctrl_config |     tag_desc
+----------+----------+-----------+-------------+------------------
+ q_bronze | Bronze   | t         |             | Medallion Bronze
+ q_gold   | Gold     | t         |             | Medallion Gold
+ q_silver | Silver   | t         |             | Medallion Silver
 (3 rows)
 
 CREATE TABLE
@@ -59,48 +59,48 @@ CREATE TABLE
 CREATE TABLE
 CREATE TABLE
 CREATE TABLE
-psql:src/assert02-psqlDiff.sql:368: ERROR:  pg_govLite ERROR, schema semtag_bronze candidato a tagging mas com tags ausentes: semtag
-CONTEXT:  PL/pgSQL function gvlt.trig_schema_tags_upsert_event() line 15 at RAISE
+psql:src/assert02-psqlDiff.sql:466: ERROR:  pg_govLite ERROR, schema semtag_bronze candidato a medalhão mas com tags ausentes: semtag
+CONTEXT:  PL/pgSQL function gvlt.trig_medallion_upsert_event() line 28 at RAISE
                         medallion_upsert                        
 ----------------------------------------------------------------
  SUCESSO: Schema q_bronze (tipo Bronze) atualizado no catálogo.
 (1 row)
 
-psql:src/assert02-psqlDiff.sql:370: NOTICE:  -- EXE CREATE SCHEMA tstdemo_silver...
-psql:src/assert02-psqlDiff.sql:370: NOTICE:  pg_govLite: Schema tstdemo_silver registrado com tags {TSTDEMO,Silver}!
+psql:src/assert02-psqlDiff.sql:468: NOTICE:  -- EXE CREATE SCHEMA tstdemo_silver...
+psql:src/assert02-psqlDiff.sql:468: NOTICE:  pg_govLite: Schema tstdemo_silver registrado como Silver!
                            medallion_upsert                           
 ----------------------------------------------------------------------
  SUCESSO: Schema TSTDEMO_silver (tipo Silver) atualizado no catálogo.
 (1 row)
 
-psql:src/assert02-psqlDiff.sql:371: NOTICE:  -- EXE CREATE SCHEMA geo_gold...
-psql:src/assert02-psqlDiff.sql:371: NOTICE:  pg_govLite: Schema geo_gold registrado com tags {GEO,Gold}!
+psql:src/assert02-psqlDiff.sql:469: NOTICE:  -- EXE CREATE SCHEMA geo_gold...
+psql:src/assert02-psqlDiff.sql:469: NOTICE:  pg_govLite: Schema geo_gold registrado como Gold!
                        medallion_upsert                       
 --------------------------------------------------------------
  SUCESSO: Schema geo_gold (tipo Gold) atualizado no catálogo.
 (1 row)
 
-    obj_name    | obj_id | tag_name | is_active | ctrl_config |     tag_desc     
-----------------+--------+----------+-----------+-------------+------------------
- q_bronze       |        | Bronze   | t         | {"q": 0}    | Medallion Bronze
- q_silver       |        | Silver   | t         |             | Medallion Silver
- tstdemo_silver |        | Silver   | t         | {"x": 1}    | Medallion Silver
- q_gold         |        | Gold     | t         |             | Medallion Gold
- geo_gold       |        | Gold     | t         | {"y": 2}    | Medallion Gold
+    obj_name    | tag_name | is_active | ctrl_config |     tag_desc
+----------------+----------+-----------+-------------+------------------
+ geo_gold       | Gold     | t         | {"y": 2}    | Medallion Gold
+ q_bronze       | Bronze   | t         | {"q": 0}    | Medallion Bronze
+ q_gold         | Gold     | t         |             | Medallion Gold
+ q_silver       | Silver   | t         |             | Medallion Silver
+ tstdemo_silver | Silver   | t         | {"x": 1}    | Medallion Silver
 (5 rows)
 
-psql:src/assert02-psqlDiff.sql:376: ERROR:  schema "test_bronze" does not exist
-psql:src/assert02-psqlDiff.sql:376: ERROR:  schema "test_silver" does not exist
-psql:src/assert02-psqlDiff.sql:376: ERROR:  schema "test_gold" does not exist
-psql:src/assert02-psqlDiff.sql:378: ERROR:  schema "test_bronze_test" does not exist
-psql:src/assert02-psqlDiff.sql:378: ERROR:  schema "test_prata" does not exist
-psql:src/assert02-psqlDiff.sql:378: ERROR:  schema "test_gold_test" does not exist
-    obj_name    | obj_id | tag_name | is_active | ctrl_config |     tag_desc     
-----------------+--------+----------+-----------+-------------+------------------
- q_bronze       |        | Bronze   | t         | {"q": 0}    | Medallion Bronze
- q_silver       |        | Silver   | t         |             | Medallion Silver
- tstdemo_silver |        | Silver   | t         | {"x": 1}    | Medallion Silver
- q_gold         |        | Gold     | t         |             | Medallion Gold
- geo_gold       |        | Gold     | t         | {"y": 2}    | Medallion Gold
+psql:src/assert02-psqlDiff.sql:476: ERROR:  schema "test_bronze" does not exist
+psql:src/assert02-psqlDiff.sql:476: ERROR:  schema "test_silver" does not exist
+psql:src/assert02-psqlDiff.sql:476: ERROR:  schema "test_gold" does not exist
+psql:src/assert02-psqlDiff.sql:478: ERROR:  schema "test_bronze_test" does not exist
+psql:src/assert02-psqlDiff.sql:478: ERROR:  schema "test_prata" does not exist
+psql:src/assert02-psqlDiff.sql:478: ERROR:  schema "test_gold_test" does not exist
+    obj_name    | tag_name | is_active | ctrl_config |     tag_desc
+----------------+----------+-----------+-------------+------------------
+ geo_gold       | Gold     | t         | {"y": 2}    | Medallion Gold
+ q_bronze       | Bronze   | t         | {"q": 0}    | Medallion Bronze
+ q_gold         | Gold     | t         |             | Medallion Gold
+ q_silver       | Silver   | t         |             | Medallion Silver
+ tstdemo_silver | Silver   | t         | {"x": 1}    | Medallion Silver
 (5 rows)
 
