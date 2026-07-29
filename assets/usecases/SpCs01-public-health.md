@@ -43,4 +43,3 @@ assets/data/manual01-public_health_tutorial.sql
 - The Gold view is tagged as `isProduct`.
 - The Sao Paulo sample result has `active_operator_count = 2`.
 - A documentation example is registered in `gvlt.doc_examples`.
-

@@ -78,4 +78,3 @@ relations and relevant subcolumns.
 
 This use case is not part of the default local assert target because it depends
 on external extensions and external geospatial data.
-
