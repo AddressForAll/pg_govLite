@@ -83,3 +83,28 @@ Expected result:
 t
 ```
 
+## XHTML Table Rows
+
+Use `doc_UDF_generate_mediawiki_xhtml_rows(...)` to generate only the XHTML rows that go inside a MediaWiki table. The function does not emit the outer `<table>` tag.
+
+```sql
+SELECT doc_UDF_generate_mediawiki_xhtml_rows('public', '%round%');
+```
+
+Example output:
+
+```html
+<tr><td> Function / Description / Example </td></tr>
+<tr>
+<td>
+<b><code>round(</code></b><i>double precision, integer</i><b><code>)</code> &#8594; </b> <i>numeric</i>
+<p class="pgdoc_comment">Cast for ROUND(float,x). Useful for SUM, AVG, etc.</p>
+</td>
+</tr>
+```
+
+Set `p_include_header` to `false` when the header row should be omitted:
+
+```sql
+SELECT doc_UDF_generate_mediawiki_xhtml_rows('public', '%round%', '', NULL, false);
+```

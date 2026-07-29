@@ -8,11 +8,13 @@ DECLARE
     v_mtype text;
     v_schema_name text;
     v_schema_oid oid;
+    v_tags text[];
 BEGIN
     v_schema_name := lower(trim(p_schema_name));
     -- Validação do nome via regex/lógica medalhão já existente
     -- v_mtype := gvlt.medallion_schema_getype(p_schema_name);
     v_mtype := gvlt.schema_name_validate(v_schema_name);  -- null ou '!' erro ou mtype.
+    v_tags := gvlt.schema_name_tags(v_schema_name);
     IF v_mtype IS NULL THEN
         RETURN 'ERRO: O nome do schema ' || p_schema_name || ' não segue o padrão medalhão (bronze/silver/gold).';
     ELSIF v_mtype='!' THEN
@@ -28,7 +30,7 @@ BEGIN
     WHERE nspname = v_schema_name;
 
     INSERT INTO gvlt.tag_obj (tag_name, obj_name, obj_id, is_active, ctrl_config)
-    VALUES (v_mtype, v_schema_name, v_schema_oid, true, p_info)
+    SELECT unnest(v_tags), v_schema_name, v_schema_oid, true, p_info
     ON CONFLICT (obj_name, tag_name)
     DO UPDATE SET
         obj_id = EXCLUDED.obj_id,
@@ -51,11 +53,13 @@ DECLARE
     obj record;
     m_type text;
     v_schema_name text;
+    v_tags text[];
 BEGIN
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE object_type = 'schema'
     LOOP
         v_schema_name := lower(trim(obj.object_identity));
         m_type := gvlt.schema_name_validate(v_schema_name);
+        v_tags := gvlt.schema_name_tags(v_schema_name);
         -- NULL=NOT(is_medallion) '!'=error.
         IF m_type IS NOT NULL THEN -- is_medallion
           IF m_type!='!' THEN  -- Bronze/Silver/Gold
@@ -66,12 +70,12 @@ BEGIN
               AND obj_name != v_schema_name;
 
             INSERT INTO gvlt.tag_obj (tag_name, obj_name, obj_id, is_active)
-            VALUES (m_type, v_schema_name, obj.objid, true)
+            SELECT unnest(v_tags), v_schema_name, obj.objid, true
             ON CONFLICT (obj_name, tag_name)
             DO UPDATE SET
                 obj_id = EXCLUDED.obj_id,
                 is_active = true;
-            RAISE NOTICE 'pg_govLite: Schema % registrado como %!', v_schema_name, m_type;
+            RAISE NOTICE 'pg_govLite: Schema % registrado com tags %!', v_schema_name, v_tags;
           ELSE
             RAISE EXCEPTION 'pg_govLite ERROR, schema % candidato a medalhão mas com tags ausentes: %',
                v_schema_name,

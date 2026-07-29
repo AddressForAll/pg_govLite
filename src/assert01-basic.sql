@@ -69,7 +69,7 @@ ASSERT array_distinct_sort(NULL::int[]) IS NULL,
 
 ASSERT jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}'::jsonb) = '{Y,x,z}'::text[],
   'Error: public jsonb_object_keys_asarray() not working';
-ASSERT array_distinct_sort(jsonb_object_keys_asarray('{"x":1,"Y":2,"z":3}'::jsonb)) = '{x,Y,z}'::text[],
+ASSERT array_distinct_sort(jsonb_object_keys_asarray('{"x":1,"y":2,"z":3}'::jsonb)) = '{x,y,z}'::text[],
   'Error: public jsonb_object_keys_asarray(jsonb) did not return the expected keys';
 ASSERT jsonb_object_keys_asarray('{}'::jsonb) IS NULL,
   'Error: public jsonb_object_keys_asarray(empty object) should return NULL';

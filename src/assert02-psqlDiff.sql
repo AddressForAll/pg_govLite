@@ -46,19 +46,19 @@ ASSERT NOT EXISTS (
 
 EXECUTE 'ALTER SCHEMA tsttmp_bronze RENAME TO tsttmp_dev_bronze';
 ASSERT (
-  SELECT count(*) = 1 AND bool_and(NOT is_active)
+  SELECT count(*) = 2 AND bool_and(NOT is_active)
   FROM gvlt.tag_obj
   WHERE obj_name = 'tsttmp_bronze'
-    AND tag_name = 'Bronze'
+    AND tag_name IN ('TSTTMP', 'Bronze')
 ),
   'Error: valid ALTER SCHEMA should deactivate the catalog entry for the previous name';
 ASSERT (
-  SELECT count(*) = 1
+  SELECT count(*) = 3
      AND bool_and(is_active)
      AND bool_and(obj_id = (SELECT oid::bigint FROM pg_namespace WHERE nspname = 'tsttmp_dev_bronze'))
   FROM gvlt.tag_obj
   WHERE obj_name = 'tsttmp_dev_bronze'
-    AND tag_name = 'Bronze'
+    AND tag_name IN ('TSTTMP', 'Dev', 'Bronze')
 ),
   'Error: valid ALTER SCHEMA should register the new name with the same schema OID';
 EXECUTE 'DROP SCHEMA tsttmp_dev_bronze';
@@ -171,11 +171,13 @@ EXECUTE 'CREATE EVENT TRIGGER et_medallion_drop ON sql_drop WHEN TAG IN (''DROP 
 
 -- Cleanup from interrupted previous runs.
 DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'assert02%';
+DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'public.assert02_cols%';
 DELETE FROM gvlt.tag_obj WHERE obj_name IN ('t_bronze', 'tsttmp_silver');
 EXECUTE 'DROP SCHEMA IF EXISTS t_bronze CASCADE';
 EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_silver CASCADE';
 EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_stage_bronze CASCADE';
 EXECUTE 'DROP TABLE IF EXISTS public.assert02_rel_desc';
+EXECUTE 'DROP TABLE IF EXISTS public.assert02_cols';
 EXECUTE 'DROP TABLE IF EXISTS pg_temp.assert02_dynamic_execute_test';
 
 ASSERT (
@@ -337,6 +339,112 @@ ASSERT NOT gvlt.govtags_is_include('assert02_obj.relation.column.extra', ARRAY['
 ASSERT NOT gvlt.govtags_is_include('assert02_obj.relation', ARRAY['no_such_tag']),
   'Error: gvlt.govtags_is_include should reject unknown tags';
 
+ASSERT gvlt.tag_include(
+  'assert02Climate',
+  'semantic',
+  'Assert02 climate semantic tag',
+  'wd:Q7937'
+),
+  'Error: gvlt.tag_include should create a governed tag';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag
+  WHERE tag_name = 'assert02Climate'
+    AND role = 'semantic'
+    AND rdf_id = 'wd:Q7937'
+    AND is_active
+),
+  'Error: gvlt.tag_include did not upsert the expected tag';
+ASSERT gvlt.tagobj_include(
+  'assert02Climate',
+  ARRAY[
+    'assert02_obj.alias_relation',
+    'assert02_obj.alias_relation.climate_avg'
+  ]
+),
+  'Error: gvlt.tagobj_include(text,text[]) should tag all listed objects';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'assert02_obj.alias_relation'
+    AND tag_name = 'assert02Climate'
+    AND is_active
+),
+  'Error: gvlt.tagobj_include did not tag the relation object';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_obj
+  WHERE obj_name = 'assert02_obj.alias_relation.climate_avg'
+    AND tag_name = 'assert02Climate'
+    AND is_active
+),
+  'Error: gvlt.tagobj_include did not tag the column object';
+ASSERT gvlt.obj_has_tags('assert02_obj.alias_relation', ARRAY['assert02Climate']),
+  'Error: gvlt.obj_has_tags should detect active object tags';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.obj_tags('assert02_obj.alias_relation')
+  WHERE tag_name = 'assert02Climate'
+    AND role = 'semantic'
+),
+  'Error: gvlt.obj_tags did not list the expected active object tag';
+ASSERT gvlt.usecase_assert_obj_tags('SpCsAssert02', 'assert02_obj.alias_relation', ARRAY['assert02Climate']),
+  'Error: gvlt.usecase_assert_obj_tags should return true when tags are present';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_get('assert02Climate')
+  WHERE role = 'semantic'
+    AND is_active
+),
+  'Error: gvlt.tag_get did not return the expected tag';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_search('climate', 'semantic')
+  WHERE tag_name = 'assert02Climate'
+),
+  'Error: gvlt.tag_search did not find the expected tag';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.governance_check()
+  WHERE check_name = 'active_relation_tag_without_relation'
+    AND obj_name = 'assert02_obj.alias_relation'
+),
+  'Error: gvlt.governance_check should flag active tags on missing relations';
+ASSERT gvlt.tagobj_disable('assert02_obj.alias_relation', ARRAY['assert02Climate']),
+  'Error: gvlt.tagobj_disable should deactivate an active object/tag association';
+ASSERT NOT gvlt.obj_has_tags('assert02_obj.alias_relation', ARRAY['assert02Climate']),
+  'Error: gvlt.obj_has_tags should ignore inactive object/tag associations';
+ASSERT gvlt.tagobj_include('assert02Climate', ARRAY['assert02_obj.alias_relation']),
+  'Error: gvlt.tagobj_include should reactivate disabled object/tag associations';
+ASSERT gvlt.tag_disable('assert02Climate', 'assert02 lifecycle test'),
+  'Error: gvlt.tag_disable should deactivate an existing tag';
+ASSERT NOT gvlt.obj_has_tags('assert02_obj.alias_relation', ARRAY['assert02Climate']),
+  'Error: gvlt.obj_has_tags should ignore inactive governed tags';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.tag_get('assert02Climate')
+  WHERE NOT is_active
+),
+  'Error: gvlt.tag_disable did not mark the tag inactive';
+ASSERT gvlt.tag_include(
+  'assert02Climate',
+  'semantic',
+  'Assert02 climate semantic tag',
+  'wd:Q7937'
+),
+  'Error: gvlt.tag_include should reactivate an inactive tag';
+EXECUTE 'CREATE TABLE public.assert02_cols(id int, name text)';
+ASSERT gvlt.tagobj_include('ID', ARRAY['public.assert02_cols.id']),
+  'Error: gvlt.tagobj_include should tag a physical test column';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.relation_columns('assert02_cols')
+  WHERE column_name = 'id'
+    AND tags = ARRAY['ID']::text[]
+),
+  'Error: gvlt.relation_columns did not report active column tags';
+EXECUTE 'DROP TABLE public.assert02_cols';
+
 v_text := gvlt.medallion_upsert('t_bronze', '{"case":"manual"}'::jsonb);
 ASSERT v_text LIKE 'SUCESSO:%',
   'Error: gvlt.medallion_upsert(valid schema) should return success';
@@ -355,6 +463,14 @@ ASSERT EXISTS (
     AND ctrl_config = '{"case":"manual"}'::jsonb
 ),
   'Error: gvlt.medallion_upsert did not register Bronze tag and config';
+ASSERT EXISTS (
+  SELECT 1
+  FROM gvlt.medallion_objects('t_bronze')
+  WHERE obj_name = 't_bronze'
+    AND obj_type = 'schema'
+    AND medallion_tag = 'Bronze'
+),
+  'Error: gvlt.medallion_objects did not list the Medallion schema';
 
 v_text := gvlt.medallion_upsert('t_bronze', NULL);
 ASSERT v_text LIKE 'SUCESSO:%',
@@ -435,7 +551,9 @@ EXECUTE 'DROP SCHEMA IF EXISTS t_bronze CASCADE';
 EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_silver CASCADE';
 EXECUTE 'DROP SCHEMA IF EXISTS tsttmp_stage_bronze CASCADE';
 DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'assert02%';
+DELETE FROM gvlt.tag_obj WHERE obj_name LIKE 'public.assert02_cols%';
 DELETE FROM gvlt.tag_obj WHERE obj_name IN ('t_bronze', 'tsttmp_silver', 'tsttmp_stage_bronze');
+DELETE FROM gvlt.tag WHERE tag_name = 'assert02Climate';
 
 -- Restore the production triggers after the multi-tag helper assertions.
 EXECUTE 'DROP EVENT TRIGGER IF EXISTS et_medallion_insert';

@@ -35,11 +35,11 @@ DO
 ----------+----------+-----------+-------------+----------
 (0 rows)
 
-psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_bronze registrado como Bronze!
+psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_bronze registrado com tags {Bronze}!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_silver registrado como Silver!
+psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_silver registrado com tags {Silver}!
 CREATE SCHEMA
-psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_gold registrado como Gold!
+psql:src/assert02-psqlDiff.sql:453: NOTICE:  pg_govLite: Schema q_gold registrado com tags {Gold}!
 CREATE SCHEMA
 psql:src/assert02-psqlDiff.sql:455: NOTICE:  pg_govLite: Schema não-governado ok, q_bronze_q não é medalhão
 CREATE SCHEMA
@@ -60,21 +60,21 @@ CREATE TABLE
 CREATE TABLE
 CREATE TABLE
 psql:src/assert02-psqlDiff.sql:466: ERROR:  pg_govLite ERROR, schema semtag_bronze candidato a medalhão mas com tags ausentes: semtag
-CONTEXT:  PL/pgSQL function gvlt.trig_medallion_upsert_event() line 28 at RAISE
+CONTEXT:  PL/pgSQL function gvlt.trig_medallion_upsert_event() line 30 at RAISE
                         medallion_upsert                        
 ----------------------------------------------------------------
  SUCESSO: Schema q_bronze (tipo Bronze) atualizado no catálogo.
 (1 row)
 
 psql:src/assert02-psqlDiff.sql:468: NOTICE:  -- EXE CREATE SCHEMA tstdemo_silver...
-psql:src/assert02-psqlDiff.sql:468: NOTICE:  pg_govLite: Schema tstdemo_silver registrado como Silver!
+psql:src/assert02-psqlDiff.sql:468: NOTICE:  pg_govLite: Schema tstdemo_silver registrado com tags {TSTDEMO,Silver}!
                            medallion_upsert                           
 ----------------------------------------------------------------------
  SUCESSO: Schema TSTDEMO_silver (tipo Silver) atualizado no catálogo.
 (1 row)
 
 psql:src/assert02-psqlDiff.sql:469: NOTICE:  -- EXE CREATE SCHEMA geo_gold...
-psql:src/assert02-psqlDiff.sql:469: NOTICE:  pg_govLite: Schema geo_gold registrado como Gold!
+psql:src/assert02-psqlDiff.sql:469: NOTICE:  pg_govLite: Schema geo_gold registrado com tags {GEO,Gold}!
                        medallion_upsert                       
 --------------------------------------------------------------
  SUCESSO: Schema geo_gold (tipo Gold) atualizado no catálogo.
