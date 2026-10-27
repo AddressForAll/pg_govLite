@@ -2,6 +2,8 @@
 
 `inst04-documentation_examples.sql` adds support for storing documentation examples as executable PostgreSQL views.
 
+It is an installation template, rendered and executed through `setup.py` together with the other core modules. In single layout, replace `gvlt.<name>` in the examples below with `<authorized_schema>.gvlt_<name>`. Generated views use `<authorized_schema>.doc_ex<ID>` and store those physical names in the catalog. See [installation instructions](../docs/INSTALLATION.md).
+
 The main entry point is:
 
 ```sql

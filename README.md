@@ -60,10 +60,22 @@ It creates a deterministic local sample, so it does not download external data. 
 
 ## Install or test
 
-This project foresees installation on Linux, using `make` command.
+New installations support **multiple schemas** (default) or a **single authorized schema**, with optional restrictive governance for Silver and Gold. See [installation, permissions and policy operations](docs/INSTALLATION.md).
 
-* `make` show all options.
-* `make all` will install all in your database (edit Makefile to set your configurations). Standard installation.
-* `make manualExamples` will execute the SQL examples from the user manual tutorial. Run `make core` first when the database has not been initialized yet.
-* `make usecaseExamples` will execute approved simple use-case test cases. It currently runs `SpCs01`.
-* `make dropDbTest` will DROP the test-database and install all in it. Important for developers, to avoid [Software regression](https://en.wikipedia.org/wiki/Software_regression).
+```sh
+python setup.py
+# Automation; connection supplied through PGHOST/PGPORT/PGUSER/PGDATABASE:
+python setup.py --non-interactive --mode single --schema cliente --restrictive SIM --master carga_master
+```
+
+Setup requires Python 3.9+, psql, PostgreSQL 15+ and DBA privileges for event triggers. It installs in one transaction, preserves unrelated objects and refuses framework collisions/reinstallation. The installation SQL files are templates rendered by setup; do not run them directly through psql.
+
+* `make` shows options; `make core` and `make all` install a fresh core and run basic assertions.
+* `make core LAYOUT=single AUTHORIZED_SCHEMA=cliente RESTRICTIVE=SIM MASTER_ROLE=carga_master` selects the single layout.
+* `make render` generates reviewable SQL without connecting.
+* `make manualExamples` runs the multi-schema manual tutorial; add `LAYOUT=single AUTHORIZED_SCHEMA=cliente` for the single-schema tutorial.
+* `make usecaseExamples` aliases the selected tutorial.
+* `make test` runs offline installer checks; `make test-db` runs the integration matrix against a disposable PostgreSQL instance. The suite creates and removes only its uniquely named databases and roles.
+* `make dropDbTest` and `make assertDiff` are compatibility aliases for `make test-db`; they no longer drop a preexisting fixed test database or compare version-specific demonstration output.
+
+Existing databases are not migrated. pgAdmin/PostgREST adjustments are deferred to a separate delivery.

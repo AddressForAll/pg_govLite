@@ -4,6 +4,13 @@
 # Se usar DBURL, os demais podem ficar em branco.
 # ==============================
 PSQL ?= psql
+PYTHON ?= python3
+LAYOUT ?= multi
+AUTHORIZED_SCHEMA ?=
+RESTRICTIVE ?= NAO
+MASTER_ROLE ?=
+OUTPUT_SQL ?= installation.rendered.sql
+SETUP_OPTIONS = --non-interactive --mode "$(LAYOUT)" --restrictive "$(RESTRICTIVE)" $(if $(AUTHORIZED_SCHEMA),--schema "$(AUTHORIZED_SCHEMA)") $(if $(MASTER_ROLE),--master "$(MASTER_ROLE)") --psql "$(PSQL)"
 PSQL_FLAGS ?= -v ON_ERROR_STOP=1
 DBURL =
 HOST =
@@ -11,46 +18,25 @@ PORT =
 DBUSER =
 DBPASS =
 DBNAME =
-TRASHDB = dbtest_trash
-TRASHDB_VERS = pg16-psql17
-PSQL_DIFF_LINE_SED = s|^psql:([^:]+):[0-9]+:|psql:\1:<LINE>:|
 
 PSQL_ENV = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)')
 PSQL_CMD = $(PSQL_ENV) $(PSQL) $(PSQL_FLAGS) $(DBURL)
 
-# only for TRASHDB:
-DBURL_prefix = postgres://postgres@localhost
-PSQL_ENV2 = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(TRASHDB)')
-PSQL_DB2 = $(if $(strip $(PSQL_ENV2)),"","$(DBURL_prefix)/$(TRASHDB)")
-PSQL_CMD2 = $(PSQL_ENV2) $(PSQL) $(PSQL_DB2)
-PSQL_CMD2_STOP = $(PSQL_ENV2) $(PSQL) $(PSQL_FLAGS) $(PSQL_DB2)
-
-# conly for drop/create TRASHDB, using db=postgres:
-PSQL_ENV3 = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='postgres')
-PSQL_CMD3 = $(PSQL_ENV3) $(PSQL) $(PSQL_FLAGS) $(if $(strip $(PSQL_ENV3)),"","$(DBURL_prefix)/postgres")
-
-
-CORE_SQL = \
-	./src/inst01-fw_lib.sql \
-	./src/inst02-fw_core.sql \
-	./src/inst03-fw_govRules.sql \
-	./src/inst04-documentation_examples.sql \
-	./src/assert01-basic.sql
-
-.PHONY: help see assertDiff core all manualExamples usecaseExamples dropDbTest
+.PHONY: help see assertDiff core all render test test-db manualExamples usecaseExamples dropDbTest
 
 
 help:
 	@printf '%s\n' \
 	  'Targets:' \
-	  '  all          - execute all, including asserts.' \
-	  '  inst         - installations.' \
-	  '  assertDiff   - execute only asserts by diff.' \
+	  '  all/core     - transactional fresh installation, including basic asserts.' \
+	  '  render       - generate reviewable SQL without connecting.' \
+	  '  test         - offline installer tests.' \
+	  '  test-db      - four-layout matrix in uniquely named disposable databases.' \
+	  '  assertDiff   - legacy alias for test-db.' \
 	  '  manualExamples - execute the SQL examples from the user manual tutorial.' \
 	  '  usecaseExamples - execute approved simple use-case test cases.' \
-		'  test_all     - execute all on the default test-database.' \
 		'  see          - show variables' \
-		'  dropDbTest   - run all on trash-test database' \
+		'  dropDbTest   - compatibility alias for test-db; no existing database is dropped.' \
 	  '' \
 	  'Configuring makefile, for database conection:' \
 	  '  Please edit the makefile and fill:' \
@@ -59,43 +45,33 @@ help:
 	  ''
 
 see:
-	@echo "psql_env = $(PSQL_ENV)"
-	@echo "psql_cmd = $(PSQL_CMD)"
-	@echo "psql_env2 = $(PSQL_ENV2)"
-	@echo "psql_cmd2 = $(PSQL_CMD2)"
-	@echo "psql_env3 = $(PSQL_ENV3)"
-	@echo "psql_cmd3 = $(PSQL_CMD3)"
+	@echo "layout=$(LAYOUT), schema=$(AUTHORIZED_SCHEMA), restrictive=$(RESTRICTIVE)"
 
 
-assertDiff:
-	@echo ">>> Executing psql-text-diff asserts:"
-	$(PSQL_CMD) -f "./src/assert02-psqlDiff.sql | diff - ./src/assert02-res-psqlDiff.txt";
+assertDiff: test-db
 
 core:
-	@for f in $(CORE_SQL); do \
-	  echo ">>> Executando $$f"; \
-	  $(PSQL_CMD) -f "$$f"; \
-	done
+	$(PSQL_ENV) $(PYTHON) setup.py $(SETUP_OPTIONS) $(if $(DBURL),--dbname "$(DBURL)")
 
-all: core assertDiff
+all: core
+
+render:
+	$(PYTHON) setup.py $(SETUP_OPTIONS) --render "$(OUTPUT_SQL)"
+
+test:
+	$(PYTHON) -m unittest discover -s tests -v
+
+test-db:
+	$(PSQL_ENV) GVLT_RUN_DB_TESTS=1 PSQL="$(PSQL)" $(PYTHON) -m unittest discover -s tests -v
 
 manualExamples:
 	@echo ">>> Executing user manual tutorial examples:"
+ifeq ($(LAYOUT),single)
+	$(PSQL_ENV) $(PYTHON) setup.py $(SETUP_OPTIONS) --tutorial $(if $(DBURL),--dbname "$(DBURL)")
+else
 	$(PSQL_CMD) -f ./assets/data/manual01-public_health_tutorial.sql
+endif
 
 usecaseExamples: manualExamples
 
-dropDbTest:
-	$(PSQL_CMD3) -c "DROP DATABASE IF EXISTS $(TRASHDB);"
-	$(PSQL_CMD3) -c "CREATE DATABASE $(TRASHDB);"
-	@for f in $(CORE_SQL); do \
-	  echo ">>> Executando $$f"; \
-	  $(PSQL_CMD2_STOP) -f "$$f"; \
-	done
-	@echo ">>> Executing psql-text-diff asserts on fresh $(TRASHDB):"
-	$(PSQL_CMD2) -f ./src/assert02-psqlDiff.sql > /tmp/trash.txt 2>&1
-	sed -E '$(PSQL_DIFF_LINE_SED)' /tmp/trash.txt > /tmp/trash.normalized.txt
-	sed -E '$(PSQL_DIFF_LINE_SED)' "./assets/assert02-res-psqlDiff.$(TRASHDB_VERS).txt" > /tmp/assert02-res-psqlDiff.normalized.txt
-	diff -w -b /tmp/trash.normalized.txt /tmp/assert02-res-psqlDiff.normalized.txt
-	@echo " ... if no diff, rm /tmp/trash.txt /tmp/trash.normalized.txt /tmp/assert02-res-psqlDiff.normalized.txt"
-	@echo
+dropDbTest: test-db
