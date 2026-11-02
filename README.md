@@ -63,7 +63,7 @@ It creates a deterministic local sample, so it does not download external data. 
 This project foresees installation on Linux, using `make` command.
 
 * `make` show all options.
-* `make all` will install all in your database (edit Makefile to set your configurations). Standard installation.
+* `make all` installs the project and runs its assertions. By default it connects as PostgreSQL role `postgres` to database `br_grid`, matching the commands shown below. Override the connection on the command line when needed, for example: `make all DBUSER=my_user DBNAME=my_database`; use `HOST`, `PORT`, and `DBPASS` for remote or password-protected connections, or provide a full `DBURL`.
 * `make manualExamples` will execute the SQL examples from the user manual tutorial. Run `make core` first when the database has not been initialized yet.
 * `make usecaseExamples` will execute approved simple use-case test cases. It currently runs `SpCs01`.
 * `make dropDbTest` will DROP the test-database and install all in it. Important for developers, to avoid [Software regression](https://en.wikipedia.org/wiki/Software_regression).

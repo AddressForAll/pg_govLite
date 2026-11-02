@@ -1,16 +1,18 @@
 # ==============================
 # CONFIGURACAO DE CONEXAO
-# Edite os valores abaixo antes de executar.
-# Se usar DBURL, os demais podem ficar em branco.
+# Padrao alinhado ao exemplo: psql -U postgres br_grid.
+# Sobrescreva na linha de comando, por exemplo:
+#   make all DBUSER=meu_usuario DBNAME=meu_banco
+# Uma DBURL completa pode ser informada no lugar dos parametros de conexao.
 # ==============================
 PSQL ?= psql
 PSQL_FLAGS ?= -v ON_ERROR_STOP=1
 DBURL =
 HOST =
 PORT =
-DBUSER =
+DBUSER ?= postgres
 DBPASS =
-DBNAME =
+DBNAME ?= br_grid
 TRASHDB = dbtest_trash
 TRASHDB_VERS = pg16-psql17
 PSQL_DIFF_LINE_SED = s|^psql:([^:]+):[0-9]+:|psql:\1:<LINE>:|
@@ -52,10 +54,10 @@ help:
 		'  see          - show variables' \
 		'  dropDbTest   - run all on trash-test database' \
 	  '' \
-	  'Configuring makefile, for database conection:' \
-	  '  Please edit the makefile and fill:' \
-	  '    DBURL="postgres://usuario@host/banco"' \
-	  '  or variables HOST, PORT, DBUSER, DBPASS e DBNAME' \
+	  'Default connection: DBUSER=postgres DBNAME=br_grid.' \
+	  'Override in the make command, for example:' \
+	  '  make all DBUSER=usuario DBNAME=banco' \
+	  'Or configure DBURL="postgres://usuario@host/banco".' \
 	  ''
 
 see:
@@ -69,10 +71,13 @@ see:
 
 assertDiff:
 	@echo ">>> Executing psql-text-diff asserts:"
-	$(PSQL_CMD) -f "./src/assert02-psqlDiff.sql | diff - ./src/assert02-res-psqlDiff.txt";
+	$(PSQL_CMD) -f ./src/assert02-psqlDiff.sql > /tmp/pg_govLite-assert02.txt 2>&1
+	sed -E '$(PSQL_DIFF_LINE_SED)' /tmp/pg_govLite-assert02.txt > /tmp/pg_govLite-assert02.normalized.txt
+	sed -E '$(PSQL_DIFF_LINE_SED)' "./assets/assert02-res-psqlDiff.$(TRASHDB_VERS).txt" > /tmp/pg_govLite-assert02.expected.normalized.txt
+	diff -w -b /tmp/pg_govLite-assert02.normalized.txt /tmp/pg_govLite-assert02.expected.normalized.txt
 
 core:
-	@for f in $(CORE_SQL); do \
+	@set -e; for f in $(CORE_SQL); do \
 	  echo ">>> Executando $$f"; \
 	  $(PSQL_CMD) -f "$$f"; \
 	done
@@ -88,7 +93,7 @@ usecaseExamples: manualExamples
 dropDbTest:
 	$(PSQL_CMD3) -c "DROP DATABASE IF EXISTS $(TRASHDB);"
 	$(PSQL_CMD3) -c "CREATE DATABASE $(TRASHDB);"
-	@for f in $(CORE_SQL); do \
+	@set -e; for f in $(CORE_SQL); do \
 	  echo ">>> Executando $$f"; \
 	  $(PSQL_CMD2_STOP) -f "$$f"; \
 	done
