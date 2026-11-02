@@ -1,9 +1,9 @@
 # ==============================
 # CONFIGURACAO DE CONEXAO
-# Padrao alinhado ao exemplo: psql -U postgres br_grid.
-# Sobrescreva na linha de comando, por exemplo:
-#   make all DBUSER=meu_usuario DBNAME=meu_banco
-# Uma DBURL completa pode ser informada no lugar dos parametros de conexao.
+# Defaults match the example: psql -U postgres br_grid.
+# Override them on the command line, for example:
+#   make all DBUSER=my_user DBNAME=my_database
+# A full DBURL can be provided instead of separate connection parameters.
 # ==============================
 PSQL ?= psql
 PSQL_FLAGS ?= -v ON_ERROR_STOP=1
@@ -12,12 +12,13 @@ HOST =
 PORT =
 DBUSER ?= postgres
 DBPASS =
+DBNAME_WAS_OMITTED := $(if $(filter undefined,$(origin DBNAME)),yes,no)
 DBNAME ?= br_grid
 TRASHDB = dbtest_trash
 TRASHDB_VERS = pg16-psql17
 PSQL_DIFF_LINE_SED = s|^psql:([^:]+):[0-9]+:|psql:\1:<LINE>:|
 
-PSQL_ENV = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)')
+PSQL_ENV = $(if $(strip $(DBURL)),,$(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)'))
 PSQL_CMD = $(PSQL_ENV) $(PSQL) $(PSQL_FLAGS) $(DBURL)
 
 # only for TRASHDB:
@@ -77,9 +78,26 @@ assertDiff:
 	diff -w -b /tmp/pg_govLite-assert02.normalized.txt /tmp/pg_govLite-assert02.expected.normalized.txt
 
 core:
+	@if [ -n "$(DBURL)" ]; then \
+	  echo "Connection configured by DBURL; the target database is the one in the URL."; \
+	elif [ "$(DBNAME_WAS_OMITTED)" = "yes" ]; then \
+	  echo "DBNAME not specified; using the default database '$(DBNAME)'."; \
+	else \
+	  echo "Using DBNAME='$(DBNAME)'."; \
+	fi
 	@set -e; for f in $(CORE_SQL); do \
 	  echo ">>> Executando $$f"; \
-	  $(PSQL_CMD) -f "$$f"; \
+	  if $(PSQL_CMD) -f "$$f"; then :; else \
+	    status=$$?; \
+	    if [ -n "$(DBURL)" ]; then \
+	      echo "Failed to execute '$$f' using DBURL. Check the database name in the URL." >&2; \
+	      echo "To select a database with DBNAME: make all DBURL= DBNAME=my_database" >&2; \
+	    else \
+	      echo "Failed to execute '$$f' connected to DBNAME='$(DBNAME)'." >&2; \
+	      echo "Check that this database exists; to use another: make all DBNAME=my_database" >&2; \
+	    fi; \
+	    exit $$status; \
+	  fi; \
 	done
 
 all: core assertDiff
