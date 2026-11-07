@@ -62,13 +62,79 @@ It creates a deterministic local sample, so it does not download external data. 
 
 New installations support **multiple schemas** (default) or a **single authorized schema**, with optional restrictive governance for Silver and Gold. See [installation, permissions and policy operations](docs/INSTALLATION.md).
 
-```sh
-python setup.py
-# Automation; connection supplied through PGHOST/PGPORT/PGUSER/PGDATABASE:
-python setup.py --non-interactive --mode single --schema cliente --restrictive SIM --master carga_master
-```
-
 Setup requires Python 3.9+, psql, PostgreSQL 15+ and DBA privileges for event triggers. It installs in one transaction, preserves unrelated objects and refuses framework collisions/reinstallation. The installation SQL files are templates rendered by setup; do not run them directly through psql.
+
+### Terminal quick start
+
+The commands below use a Linux/macOS shell, Git, Python 3 and `psql`; the Makefile option also requires GNU Make. Run them in the terminal, outside the `psql` prompt. On Windows, use `python` instead of `python3` and PowerShell environment assignments such as `$env:PGDATABASE = 'my_database'` instead of `export PGDATABASE=my_database`.
+
+1. Download the project and enter its directory:
+
+   ```sh
+   git clone https://github.com/AddressForAll/pg_govLite.git
+   cd pg_govLite
+   ```
+
+2. Select an existing destination database and a PostgreSQL DBA login. Replace the example values with your connection settings:
+
+   ```sh
+   export PGHOST=localhost
+   export PGPORT=5432
+   export PGUSER=postgres
+   export PGDATABASE=my_database
+   psql -X -c '\conninfo'
+   psql -X -c '\dn'
+   ```
+
+   The installer does not create the database. Use `.pgpass` or your existing credential mechanism if authentication requires a password. For a local Unix socket connection, omit `PGHOST` (or run `unset PGHOST` if it is already set).
+
+3. Choose **one** installation method for this database.
+
+   **Interactive setup:**
+
+   ```sh
+   python3 setup.py
+   ```
+
+   Enter `multi` for multiple schemas or `single` for one existing authorized schema. For example, answer `single`, then `public`, then `NAO` to install in `public` with restrictive governance disabled. With `multi`, there is no schema question. Answering `SIM` to restrictive governance also requires an existing master login; see [requirements and permissions](docs/INSTALLATION.md) first.
+
+   **Makefile:** select one of these equivalent non-interactive commands:
+
+   ```sh
+   # Multiple schemas, restrictive governance disabled:
+   make core LAYOUT=multi RESTRICTIVE=NAO
+
+   # Single existing schema, restrictive governance disabled:
+   make core LAYOUT=single AUTHORIZED_SCHEMA=public RESTRICTIVE=NAO
+   ```
+
+   **Direct non-interactive setup**, if you do not use Make:
+
+   ```sh
+   python3 setup.py --non-interactive --mode single --schema public --restrictive NAO
+   ```
+
+   All methods use the same installer and connection settings. A successful installation reports `BASIC ASSERTS FINISHED` and ends with `COMMIT`. Do not run another installation method against the same installed database: reinstallation, upgrades and layout migration are refused.
+
+4. Verify the installed framework using the same DBA connection. For `single` in `public`:
+
+   ```sh
+   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM public.gvlt_governance_check();'
+   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM public.gvlt_policy_check();'
+   psql -X -c '\dt public.gvlt_*'
+   ```
+
+   Replace `public` if you selected another authorized schema. For `multi`:
+
+   ```sh
+   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM gvlt.governance_check();'
+   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM gvlt.policy_check();'
+   psql -X -c '\dt gvlt.*'
+   ```
+
+   Both check functions should return zero rows when no issues are found. The last command lists the framework tables.
+
+### Additional Makefile commands
 
 * `make` shows options; `make core` and `make all` install a fresh core and run basic assertions.
 * `make core LAYOUT=single AUTHORIZED_SCHEMA=cliente RESTRICTIVE=SIM MASTER_ROLE=carga_master` selects the single layout.
