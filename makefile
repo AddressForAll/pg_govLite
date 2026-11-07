@@ -1,7 +1,9 @@
 # ==============================
 # CONFIGURACAO DE CONEXAO
-# Edite os valores abaixo antes de executar.
-# Se usar DBURL, os demais podem ficar em branco.
+# Defaults match the example: psql -U postgres br_grid.
+# Override them on the command line, for example:
+#   make all DBUSER=my_user DBNAME=my_database
+# A full DBURL can be provided instead of separate connection parameters.
 # ==============================
 PSQL ?= psql
 PYTHON ?= python3
@@ -15,11 +17,11 @@ PSQL_FLAGS ?= -v ON_ERROR_STOP=1
 DBURL =
 HOST =
 PORT =
-DBUSER =
+DBUSER ?= postgres
 DBPASS =
 DBNAME =
 
-PSQL_ENV = $(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)')
+PSQL_ENV = $(if $(strip $(DBURL)),,$(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)'))
 PSQL_CMD = $(PSQL_ENV) $(PSQL) $(PSQL_FLAGS) $(DBURL)
 
 .PHONY: help see assertDiff core all render test test-db manualExamples usecaseExamples dropDbTest
@@ -38,10 +40,10 @@ help:
 		'  see          - show variables' \
 		'  dropDbTest   - compatibility alias for test-db; no existing database is dropped.' \
 	  '' \
-	  'Configuring makefile, for database conection:' \
-	  '  Please edit the makefile and fill:' \
-	  '    DBURL="postgres://usuario@host/banco"' \
-	  '  or variables HOST, PORT, DBUSER, DBPASS e DBNAME' \
+	  'Default connection: DBUSER=postgres DBNAME=br_grid.' \
+	  'Override in the make command, for example:' \
+	  '  make all DBUSER=usuario DBNAME=banco' \
+	  'Or configure DBURL="postgres://usuario@host/banco".' \
 	  ''
 
 see:
