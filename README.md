@@ -90,7 +90,7 @@ The commands below use a Linux/macOS shell, Git, Python 3 and `psql`; the Makefi
 
 3. Choose **one** installation method for this database.
 
-   **Interactive setup:**
+   **Interactive standalone setup:**
 
    ```sh
    python3 setup.py
@@ -98,10 +98,13 @@ The commands below use a Linux/macOS shell, Git, Python 3 and `psql`; the Makefi
 
    Enter `multi` for multiple schemas or `single` for one existing authorized schema. For example, answer `single`, then `public`, then `NAO` to install in `public` with restrictive governance disabled. With `multi`, there is no schema question. Answering `SIM` to restrictive governance also requires an existing master login; see [requirements and permissions](docs/INSTALLATION.md) first.
 
-   **Makefile:** select one of these equivalent non-interactive commands:
+   **Makefile:** activate the native extension for either layout:
 
    ```sh
-   # Multiple schemas, restrictive governance disabled:
+   # On the PostgreSQL server, copy the extension files:
+   make install
+
+   # From a client with psql, activate the extension in the selected database:
    make core LAYOUT=multi RESTRICTIVE=NAO
 
    # Single existing schema, restrictive governance disabled:
@@ -114,7 +117,7 @@ The commands below use a Linux/macOS shell, Git, Python 3 and `psql`; the Makefi
    python3 setup.py --non-interactive --mode single --schema public --restrictive NAO
    ```
 
-   All methods use the same installer and connection settings. A successful installation reports `BASIC ASSERTS FINISHED` and ends with `COMMIT`. Do not run another installation method against the same installed database: reinstallation, upgrades and layout migration are refused.
+   For subsequent releases, install the new files on the server and run `make upgrade` against each database, adding `LAYOUT=single` for single-schema installations. See the [installation and release procedure](docs/INSTALLATION.md#native-extension-releases).
 
 4. Verify the installed framework using the same DBA connection. For `single` in `public`:
 

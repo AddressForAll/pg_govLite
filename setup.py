@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent
+EXTENSIONS = {'multi': 'pg_govlite', 'single': 'pg_govlite_single'}
 PREFIXES = {group: group + '_' for group in ('lib', 'gvlt', 'doc', 'api', 'brz', 'slv', 'gld')}
 SCHEMAS = {'lib': 'lib', 'gvlt': 'gvlt', 'doc': 'gvlt_doc_examples', 'api': 'api',
            'brz': 'brz', 'slv': 'slv', 'gld': 'gld', 'helper': 'public'}
@@ -115,13 +116,17 @@ class Layout:
         return result
 
 
-def build_sql(layout, restrictive=False, master=None):
+def build_sql(layout, restrictive=False, master=None, *, extension=False):
+    if extension and (restrictive or master):
+        raise ValueError('Configure restrictive policy after creating the extension')
     if restrictive and not master:
         raise ValueError('Restrictive governance requires an existing master login role')
     if master:
         identifier(master)
-    pieces = ["\\set ON_ERROR_STOP on\nBEGIN;\nSET LOCAL standard_conforming_strings = on;",
-              "SELECT pg_advisory_xact_lock(174938, 1);",
+    pieces = ["SET LOCAL standard_conforming_strings = on;"]
+    if extension:
+        pieces.append('SET LOCAL search_path = pg_catalog, pg_temp;')
+    pieces.extend(["SELECT pg_advisory_xact_lock(174938, 1);",
               "DO $preflight$ BEGIN\n"
               "IF current_setting('server_version_num')::int < 150000 THEN RAISE EXCEPTION 'PostgreSQL 15+ required'; END IF;\n"
               "IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user) THEN "
@@ -129,14 +134,22 @@ def build_sql(layout, restrictive=False, master=None):
               "IF EXISTS (SELECT 1 FROM pg_event_trigger WHERE evtname IN "
               "('et_medallion_insert','et_medallion_drop','gvlt_relation_ddl','gvlt_relation_drop')) THEN "
               "RAISE EXCEPTION 'Governance installation already exists; migration is not supported'; END IF;\n"
-              "END $preflight$;"]
+              "END $preflight$;"])
     if layout.mode == 'single':
         pieces.append("DO $schema$ BEGIN IF NOT EXISTS (SELECT FROM pg_namespace WHERE nspname=" +
                       literal(layout.schema) + ") THEN RAISE EXCEPTION 'Authorized schema must already exist'; END IF; END $schema$;")
+    elif extension:
+        # Existing namespaces can contain user objects. Leave their ownership alone.
+        pieces.append("""DO $schemas$
+        BEGIN
+          IF to_regnamespace('lib') IS NULL THEN CREATE SCHEMA lib; END IF;
+          IF to_regnamespace('gvlt_doc_examples') IS NULL THEN CREATE SCHEMA gvlt_doc_examples; END IF;
+        END $schemas$;""")
     else:
         pieces.extend('CREATE SCHEMA IF NOT EXISTS ' + identifier(SCHEMAS[g]) + ';'
                       for g in ('lib', 'gvlt', 'doc'))
-    pieces.append('SET LOCAL search_path = pg_catalog, ' + identifier(layout.group_schema('gvlt')) + ', public;')
+    if not extension:
+        pieces.append('SET LOCAL search_path = pg_catalog, ' + identifier(layout.group_schema('gvlt')) + ', public;')
     for file in ('inst01-fw_lib.sql', 'inst02-fw_core.sql'):
         pieces.append(layout.render((ROOT / 'src' / file).read_text(encoding='utf-8')))
     pieces.append(layout.render((ROOT / 'src' / 'installation.sql').read_text(encoding='utf-8')))
@@ -194,7 +207,61 @@ def build_sql(layout, restrictive=False, master=None):
     if restrictive:
         sql += '\n' + layout.render('SELECT {{object:gvlt.policy_set}}(true, ' + literal(master) + ');')
     sql += '\n' + layout.render("INSERT INTO {{object:gvlt.policy_audit}} (action, details) VALUES ('install', jsonb_build_object('layout', " + literal(layout.mode) + "));")
-    return sql + '\nCOMMIT;\n'
+    if extension:
+        return sql + '\n'
+    return transaction(sql)
+
+
+def transaction(sql):
+    return '\\set ON_ERROR_STOP on\nBEGIN;\n' + sql + '\nCOMMIT;\n'
+
+
+def extension_version():
+    versions = set()
+    for name in EXTENSIONS.values():
+        filename = name + '.control'
+        control = (ROOT / filename).read_text(encoding='utf-8')
+        match = re.search(r"^default_version\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'\s*$", control, re.M)
+        if not match:
+            raise ValueError('Missing or invalid default_version in ' + filename)
+        versions.add(match[1])
+    if len(versions) != 1:
+        raise ValueError('Both layouts must declare the same release version')
+    return versions.pop()
+
+
+def build_extension_sql(mode):
+    if mode == 'multi':
+        return build_sql(Layout(mode), extension=True)
+    placeholder = 'gvlt_extension_target_schema'
+    schema_name = "(pg_catalog.parse_ident('@extschema@'))[1]"
+    validate_schema = f"""DO $schema_name$
+    DECLARE target text := {schema_name};
+    BEGIN
+      IF target !~ '^[a-z_][a-z0-9_]*$' OR left(target, 3) = 'pg_' OR target = 'information_schema' THEN
+        RAISE EXCEPTION 'Single layout requires an existing lowercase SQL schema identifier';
+      END IF;
+    END $schema_name$;
+    """
+    sql = build_sql(Layout(mode, placeholder), extension=True)
+    # PostgreSQL substitutes an SQL identifier, which can include double quotes.
+    # Recover the raw name for metadata and preserve quoting in object references.
+    sql = sql.replace(literal(placeholder), schema_name).replace(identifier(placeholder), '@extschema@')
+    lock = 'SELECT pg_advisory_xact_lock(174938, 1);'
+    return sql.replace(lock, validate_schema + lock, 1).replace(placeholder, '@extschema@')
+
+
+def create_extension_sql(layout, restrictive=False, master=None):
+    sql = 'CREATE EXTENSION ' + EXTENSIONS[layout.mode] + ' VERSION ' + literal(extension_version())
+    if layout.mode == 'single':
+        sql += ' SCHEMA ' + identifier(layout.schema)
+    sql += ';'
+    if restrictive:
+        if not master:
+            raise ValueError('Restrictive governance requires an existing master login role')
+        identifier(master)
+        sql += '\n' + layout.render('SELECT {{object:gvlt.policy_set}}(true, ' + literal(master) + ');')
+    return transaction('SET LOCAL standard_conforming_strings = on;\n' + sql)
 
 
 def main(argv=None):
@@ -208,8 +275,17 @@ def main(argv=None):
     parser.add_argument('--psql', default='psql')
     parser.add_argument('--dbname', help='psql connection string (alternatively use libpq environment variables)')
     parser.add_argument('--tutorial', action='store_true', help='Run the single-schema example against an installed core')
+    parser.add_argument('--extension', action='store_true', help='Install the native extension for the selected layout')
+    parser.add_argument('--extension-sql', type=Path, help='Build the native installation script without connecting')
+    parser.add_argument('--extension-version', action='store_true', help='Print the packaged extension version')
     args = parser.parse_args(argv)
     try:
+        if args.extension_version:
+            print(extension_version())
+            return 0
+        if args.extension_sql:
+            args.extension_sql.write_text(build_extension_sql(args.mode or 'multi'), encoding='utf-8')
+            return 0
         if args.non_interactive:
             args.mode = args.mode or 'multi'
             if args.restrictive is None:
@@ -233,6 +309,8 @@ def main(argv=None):
             if args.mode != 'single':
                 raise ValueError('--tutorial requires --mode single --schema SCHEMA')
             sql = '\\set ON_ERROR_STOP on\nBEGIN;\n' + layout.render((ROOT / 'assets/data/single_schema_tutorial.sql').read_text(encoding='utf-8')) + '\nCOMMIT;\n'
+        elif args.extension:
+            sql = create_extension_sql(layout, args.restrictive, args.master)
         else:
             sql = build_sql(layout, args.restrictive, args.master)
         if args.render:
