@@ -7,6 +7,14 @@
 # ==============================
 PSQL ?= psql
 PYTHON ?= python3
+PG_CONFIG ?= pg_config
+EXTENSION_VERSION = $(shell $(PYTHON) setup.py --extension-version)
+EXTENSION_NAME = $(if $(filter single,$(LAYOUT)),pg_govlite_single,pg_govlite)
+MULTI_SQL = build/pg_govlite--$(EXTENSION_VERSION).sql
+SINGLE_SQL = build/pg_govlite_single--$(EXTENSION_VERSION).sql
+PG_SHAREDIR = $(shell "$(PG_CONFIG)" --sharedir)
+EXTENSION_DIR = $(DESTDIR)$(PG_SHAREDIR)/extension
+EXTENSION_FILES = $(wildcard extension/pg_govlite--*.sql extension/pg_govlite_single--*.sql)
 LAYOUT ?= multi
 AUTHORIZED_SCHEMA ?=
 RESTRICTIVE ?= NAO
@@ -24,13 +32,16 @@ DBNAME =
 PSQL_ENV = $(if $(strip $(DBURL)),,$(if $(HOST),PGHOST='$(HOST)') $(if $(PORT),PGPORT='$(PORT)') $(if $(DBUSER),PGUSER='$(DBUSER)') $(if $(DBPASS),PGPASSWORD='$(DBPASS)') $(if $(DBNAME),PGDATABASE='$(DBNAME)'))
 PSQL_CMD = $(PSQL_ENV) $(PSQL) $(PSQL_FLAGS) $(DBURL)
 
-.PHONY: help see assertDiff core all render test test-db manualExamples usecaseExamples dropDbTest
+.PHONY: help see assertDiff core all render test test-db manualExamples usecaseExamples dropDbTest extension install upgrade
 
 
 help:
 	@printf '%s\n' \
 	  'Targets:' \
-	  '  all/core     - transactional fresh installation, including basic asserts.' \
+	  '  extension    - build the native extension SQL for both layouts.' \
+	  '  install      - copy the extension files to the PostgreSQL server.' \
+	  '  all/core     - activate the extension for the selected layout.' \
+	  '  upgrade      - upgrade a native installation to this checkout version.' \
 	  '  render       - generate reviewable SQL without connecting.' \
 	  '  test         - offline installer tests.' \
 	  '  test-db      - four-layout matrix in uniquely named disposable databases.' \
@@ -53,9 +64,25 @@ see:
 assertDiff: test-db
 
 core:
-	$(PSQL_ENV) $(PYTHON) setup.py $(SETUP_OPTIONS) $(if $(DBURL),--dbname "$(DBURL)")
+	$(PSQL_ENV) $(PYTHON) setup.py $(SETUP_OPTIONS) --extension $(if $(DBURL),--dbname "$(DBURL)")
 
 all: core
+
+extension:
+	@test -n "$(EXTENSION_VERSION)"
+	mkdir -p build
+	$(PYTHON) setup.py --mode multi --extension-sql "$(MULTI_SQL)"
+	$(PYTHON) setup.py --mode single --extension-sql "$(SINGLE_SQL)"
+
+install: extension
+	@test -n "$(PG_SHAREDIR)"
+	install -d "$(EXTENSION_DIR)"
+	install -m 644 pg_govlite.control pg_govlite_single.control "$(MULTI_SQL)" "$(SINGLE_SQL)" $(EXTENSION_FILES) "$(EXTENSION_DIR)"
+
+upgrade:
+	@test "$(LAYOUT)" = multi || test "$(LAYOUT)" = single
+	@test -n "$(EXTENSION_VERSION)"
+	$(PSQL_ENV) $(PSQL) -X -v ON_ERROR_STOP=1 $(if $(DBURL),--dbname "$(DBURL)") -c "ALTER EXTENSION $(EXTENSION_NAME) UPDATE TO '$(EXTENSION_VERSION)';"
 
 render:
 	$(PYTHON) setup.py $(SETUP_OPTIONS) --render "$(OUTPUT_SQL)"

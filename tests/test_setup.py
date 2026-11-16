@@ -13,7 +13,7 @@ import unittest
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from setup import Layout, ROOT, answer, build_sql, identifier
+from setup import EXTENSIONS, Layout, ROOT, answer, build_sql, create_extension_sql, extension_version, identifier, literal
 
 
 class RenderingTests(unittest.TestCase):
@@ -97,8 +97,21 @@ class DatabaseTests(unittest.TestCase):
                 with self.subTest(mode=mode, restrictive=restrictive):
                     self.exercise_layout(mode, restrictive)
 
-    def exercise_layout(self, mode, restrictive):
-        db = self.database(mode + ('_on' if restrictive else '_off'))
+    @unittest.skipUnless(os.environ.get('GVLT_RUN_EXTENSION_TESTS') == '1', 'Native extension files and test migration required')
+    def test_native_extension(self):
+        for mode in EXTENSIONS:
+            for restrictive in (False, True):
+                with self.subTest(mode=mode, restrictive=restrictive):
+                    self.exercise_layout(mode, restrictive, extension=True)
+        db = self.database('native_quoted')
+        self.sql(db, 'CREATE SCHEMA "select";')
+        self.sql(db, create_extension_sql(Layout('single', 'select')))
+        self.assertEqual(self.sql(db, 'SELECT target_schema FROM "select".gvlt_installation;'), 'select')
+        self.sql(db, """SELECT "select".gvlt_doc_examples_add('SELECT 1 AS value');""")
+        self.assertEqual(self.sql(db, 'SELECT view_schema FROM "select".gvlt_doc_examples;'), 'select')
+
+    def exercise_layout(self, mode, restrictive, *, extension=False):
+        db = self.database(('native_' if extension else '') + mode + ('_on' if restrictive else '_off'))
         layout = Layout(mode, 'cliente' if mode == 'single' else None)
         target = 'cliente' if mode == 'single' else 'slv'
         bronze_schema = 'cliente' if mode == 'single' else 'brz'
@@ -122,7 +135,20 @@ class DatabaseTests(unittest.TestCase):
         self.sql(db, 'ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO ' + identifier(self.reader) + ';'
                  'ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO ' + identifier(self.reader) + ';'
                  'ALTER DEFAULT PRIVILEGES GRANT USAGE ON SEQUENCES TO ' + identifier(self.reader) + ';')
-        self.sql(db, build_sql(layout, restrictive, self.master if restrictive else None))
+        if extension:
+            version = extension_version()
+            name = EXTENSIONS[mode]
+            installed_version = 'SELECT extversion FROM pg_extension WHERE extname=' + literal(name)
+            self.sql(db, create_extension_sql(layout, restrictive, self.master if restrictive else None))
+            self.assertEqual(self.sql(db, installed_version), version)
+            self.sql(db, 'INSERT INTO ' + f('policy_audit') + "(action) VALUES ('upgrade-test');")
+            self.sql(db, 'ALTER EXTENSION ' + name + ' UPDATE TO ' + literal(version + '-test') + ';')
+            self.assertEqual(self.sql(db, installed_version), version + '-test')
+            self.assertEqual(self.sql(db, 'SELECT upgrade_probe FROM ' + f('installation')), 't')
+            self.assertEqual(self.sql(db, 'SELECT restrictive FROM ' + f('installation')), 't' if restrictive else 'f')
+            self.assertEqual(self.sql(db, 'SELECT count(*) FROM ' + f('policy_audit') + " WHERE action='upgrade-test';"), '1')
+        else:
+            self.sql(db, build_sql(layout, restrictive, self.master if restrictive else None))
         self.assertEqual(self.sql(db, 'SELECT value FROM ' + identifier(target) + '.unrelated;'), '42')
         self.assertEqual(self.sql(db, 'SELECT count(*) FROM ' + f('prefix_dictionary')), '7')
         self.assertEqual(self.sql(db, 'SELECT base_name FROM ' + f('object_name_parse') + "('slv_municipios_historico');"), 'municipios_historico')
@@ -139,8 +165,10 @@ class DatabaseTests(unittest.TestCase):
         self.sql(db, 'SELECT ' + f('policy_grant') + "('TABLE','" + silver + "'::regclass,'" + self.reader + "'::regrole,'INSERT');", user=self.reader, ok=False)
         if mode == 'multi':
             if not restrictive:
-                assertions = (ROOT / 'src/assert02-psqlDiff.sql').read_text(encoding='utf-8').split('\nEND $do$;', 1)[0] + '\nEND $do$;'
-                self.sql(db, 'BEGIN;\n' + assertions + '\nROLLBACK;')
+                if not extension:
+                    # The standalone regression replaces event triggers that are extension members in native mode.
+                    assertions = (ROOT / 'src/assert02-psqlDiff.sql').read_text(encoding='utf-8').split('\nEND $do$;', 1)[0] + '\nEND $do$;'
+                    self.sql(db, 'BEGIN;\n' + assertions + '\nROLLBACK;')
                 self.sql(db, 'BEGIN;\n' + (ROOT / 'assets/data/manual01-public_health_tutorial.sql').read_text(encoding='utf-8') + '\nROLLBACK;')
             self.sql(db, 'SELECT gvlt.medallion_upsert(\'tstdemo_silver\');')
             self.sql(db, 'CREATE TABLE tstdemo_silver.legacy(value int);')
