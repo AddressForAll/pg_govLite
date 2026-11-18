@@ -17,6 +17,18 @@ from setup import EXTENSIONS, Layout, ROOT, answer, build_sql, create_extension_
 
 
 class RenderingTests(unittest.TestCase):
+    def test_curated_library_upgrade_matches_installation(self):
+        source = (ROOT / 'src/publib-yaml-mustache.sql').read_text(encoding='utf-8')
+        for mode, name in EXTENSIONS.items():
+            layout = Layout(mode, 'cliente' if mode == 'single' else None)
+            expected = layout.render(source)
+            migration = (ROOT / 'extension' / (name + '--0.2.0--0.3.0.sql')).read_text(encoding='utf-8')
+            if mode == 'single':
+                migration = migration.replace('@extschema@', '"cliente"')
+            self.assertEqual(migration, expected)
+            self.assertIn(expected, build_sql(layout))
+            self.assertIn(' CASCADE;', create_extension_sql(layout))
+
     def test_prompt_contract(self):
         for value in ('SIM', 's', 'y', ' sim '):
             self.assertTrue(answer(value))
@@ -149,6 +161,7 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(self.sql(db, 'SELECT count(*) FROM ' + f('policy_audit') + " WHERE action='upgrade-test';"), '1')
         else:
             self.sql(db, build_sql(layout, restrictive, self.master if restrictive else None))
+        self.check_library(db, layout)
         self.assertEqual(self.sql(db, 'SELECT value FROM ' + identifier(target) + '.unrelated;'), '42')
         self.assertEqual(self.sql(db, 'SELECT count(*) FROM ' + f('prefix_dictionary')), '7')
         self.assertEqual(self.sql(db, 'SELECT base_name FROM ' + f('object_name_parse') + "('slv_municipios_historico');"), 'municipios_historico')
@@ -260,6 +273,42 @@ class DatabaseTests(unittest.TestCase):
         self.sql(db, 'BEGIN; GRANT INSERT ON ' + renamed + ' TO ' + identifier(self.reader) + '; SELECT ' + f('permission_review') +
                  "((SELECT min(id) FROM " + f('permission_history') + "),'Reviewed; INSERT restored explicitly after deactivation'); COMMIT;")
         self.sql(db, 'INSERT INTO ' + renamed + '(renamed_value) VALUES (1);', user=self.reader)
+
+    def check_library(self, db, layout):
+        f = lambda name: layout.render('{{object:lib.' + name + '}}')
+        self.assertEqual(self.sql(db, 'SELECT ' + f('yaml_to_jsonb') + "('name: São Paulo') ->> 'name';"), 'São Paulo')
+        for value in ('{"items":[1,true,null],"text":"ação"}', '[1,"two",false]', 'null', '42', '"hello"'):
+            self.assertEqual(self.sql(db, 'SELECT ' + f('yaml_to_jsonb') + '(' + f('jsonb_to_yaml') + '(' + literal(value) + ')) = ' + literal(value) + '::jsonb;'), 't')
+        self.assertEqual(self.sql(db, 'SELECT ' + f('yaml_to_jsonb') + '(' + f('jsonb_to_yaml') + "('{\"a\":[1,2]}', true)) = '{\"a\":[1,2]}'::jsonb;"), 't')
+        template = literal('Hello, {{name}}!')
+        self.assertEqual(self.sql(db, 'SELECT ' + f('jsonb_mustache_render') + '(' + template + ',\'{"name":"World"}\'::jsonb);'), 'Hello, World!')
+        self.assertEqual(self.sql(db, 'SELECT ' + f('yaml_to_jsonb') + '(NULL) IS NULL;'), 't')
+        self.sql(db, 'SELECT ' + f('yaml_to_jsonb') + "('[invalid');", ok=False)
+        self.sql(db, 'SELECT ' + f('jsonb_to_yaml') + "('invalid json');", ok=False)
+        self.assertEqual(self.sql(db, 'SELECT ' + f('yamlfile_to_jsonb') + "('PG_VERSION') = to_jsonb(split_part(current_setting('server_version'), '.', 1)::integer);"), 't')
+        self.sql(db, 'SELECT ' + f('yaml_to_jsonb') + "('a: 1');", user=self.reader, ok=False)
+
+    @unittest.skipUnless(os.environ.get('GVLT_RUN_EXTENSION_TESTS') == '1', 'Native extension files required')
+    def test_curated_library_native_upgrade(self):
+        for mode, name in EXTENSIONS.items():
+            with self.subTest(mode=mode):
+                db = self.database('upgrade_' + mode)
+                layout = Layout(mode, 'cliente' if mode == 'single' else None)
+                schema_sql = 'CREATE SCHEMA cliente;' if mode == 'single' else ''
+                schema_option = ' SCHEMA cliente' if mode == 'single' else ''
+                self.sql(db, schema_sql + 'CREATE EXTENSION ' + name + " VERSION '0.2.0'" + schema_option + ' CASCADE;')
+                audit = layout.render('{{object:gvlt.policy_audit}}')
+                self.sql(db, 'INSERT INTO ' + audit + "(action) VALUES ('library-upgrade-test');")
+                self.sql(db, 'ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO ' + identifier(self.reader) + ';'
+                         'CREATE EXTENSION IF NOT EXISTS plpython3u; ALTER EXTENSION ' + name + " UPDATE TO '0.3.0';")
+                self.check_library(db, layout)
+                self.assertEqual(self.sql(db, 'SELECT count(*) FROM ' + audit + " WHERE action='library-upgrade-test';"), '1')
+                self.assertEqual(self.sql(db, 'SELECT extversion FROM pg_extension WHERE extname=' + literal(name)), '0.3.0')
+                self.assertEqual(self.sql(db,
+                    "SELECT count(*) FROM pg_depend d JOIN pg_extension e ON e.oid=d.objid "
+                    "JOIN pg_extension dependency ON dependency.oid=d.refobjid "
+                    "WHERE d.classid='pg_extension'::regclass AND d.refclassid='pg_extension'::regclass "
+                    "AND d.deptype='n' AND e.extname=" + literal(name) + " AND dependency.extname='plpython3u';"), '1')
 
     def test_rollback_and_collisions(self):
         db = self.database('rollback')
