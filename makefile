@@ -82,7 +82,7 @@ install: extension
 upgrade:
 	@test "$(LAYOUT)" = multi || test "$(LAYOUT)" = single
 	@test -n "$(EXTENSION_VERSION)"
-	$(PSQL_ENV) $(PSQL) -X -v ON_ERROR_STOP=1 $(if $(DBURL),--dbname "$(DBURL)") -c "ALTER EXTENSION $(EXTENSION_NAME) UPDATE TO '$(EXTENSION_VERSION)';"
+	$(PSQL_ENV) $(PSQL) -X -v ON_ERROR_STOP=1 $(if $(DBURL),--dbname "$(DBURL)") -c "BEGIN; CREATE EXTENSION IF NOT EXISTS plpython3u; ALTER EXTENSION $(EXTENSION_NAME) UPDATE TO '$(EXTENSION_VERSION)'; COMMIT;"
 
 render:
 	$(PYTHON) setup.py $(SETUP_OPTIONS) --render "$(OUTPUT_SQL)"

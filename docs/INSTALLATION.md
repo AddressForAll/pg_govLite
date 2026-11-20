@@ -4,7 +4,8 @@ This delivery changes the pg_govLite core installer only. pgAdmin and PostgREST 
 
 ## Requirements
 
-- Python 3.9+ and `psql` on PATH; no Python packages are required.
+- Python 3.9+ and `psql` on PATH for the installer.
+- PL/Python (`plpython3u`) for the server's PostgreSQL major version, plus PyYAML and Chevron in the Python environment loaded by PL/Python.
 - PostgreSQL 15+ (integration verified on PostgreSQL 17.2).
 - A DBA/superuser connection for installation and policy administration. PostgreSQL event triggers are database-wide administrative objects.
 - A new framework installation, or an existing native extension with an upgrade path. Existing business objects may coexist in the destination. Fresh installation fails if framework objects already exist.
@@ -60,8 +61,8 @@ make core DBNAME=my_database
 make core DBNAME=my_database LAYOUT=single AUTHORIZED_SCHEMA=cliente
 
 # Direct SQL alternatives, with restrictive governance disabled:
-psql -X -v ON_ERROR_STOP=1 -d my_database -c "CREATE EXTENSION pg_govlite VERSION '0.2.0';"
-psql -X -v ON_ERROR_STOP=1 -d my_database -c "CREATE EXTENSION pg_govlite_single WITH SCHEMA cliente VERSION '0.2.0';"
+psql -X -v ON_ERROR_STOP=1 -d my_database -c "CREATE EXTENSION pg_govlite VERSION '0.3.0' CASCADE;"
+psql -X -v ON_ERROR_STOP=1 -d my_database -c "CREATE EXTENSION pg_govlite_single WITH SCHEMA cliente VERSION '0.3.0' CASCADE;"
 ```
 
 The target `core` (also `all`) requests the version declared in this checkout. With `RESTRICTIVE=SIM MASTER_ROLE=carga_master`, it enables the policy in the same transaction after creating the extension. The single layout uses an existing authorized schema. Upgrades reuse that schema automatically. To install from a client without Make, use `python setup.py --extension --non-interactive --mode multi --restrictive NAO` or `python setup.py --extension --non-interactive --mode single --schema cliente --restrictive NAO` once the server files are present.
@@ -77,6 +78,62 @@ WHERE path IS NOT NULL;
 When preparing the next release, update `default_version` in both control files and add a migration for each layout under `extension/`, for example `pg_govlite--0.2.0--0.3.0.sql` and `pg_govlite_single--0.2.0--0.3.0.sql`. Qualify single-layout object references with `@extschema@`, for example `@extschema@.gvlt_installation`. Keep migrations focused on changes, with no transaction control or psql commands. `make install` packages the migration history alongside both new base scripts. To continue allowing fresh installs of an older version, archive its generated SQL under `extension/` before changing the templates. Validate a clean install and an upgrade from the previous release with populated data in both layouts. Tag the approved version with the same number prefixed by `v`.
 
 Bases installed by the standalone setup or by older versions of `make core` require a separate adoption migration before they can use native upgrades. Layout conversion also requires a separate migration. An in-place upgrade keeps the framework tables. A standard `pg_dump` omits the contents of native extension tables in this baseline. For validation data you need to recover, use a cluster backup that preserves governance state and its OID references.
+
+## YAML/Mustache and cascading dependencies (0.3.0)
+
+Release `0.3.0` incorporates five curated functions from
+`AddressForAll/pg_pubLib-v1/src/pubLib01py-string.sql`. The first line of
+`src/publib-yaml-mustache.sql` identifies the source revision and the requirement
+to keep the copy aligned with upstream. Assign the curator before release.
+This SQL is packaged into both governance layouts.
+
+Install the PostgreSQL PL/Python package matching the server major version.
+Install `PyYAML` and `chevron` with the Python interpreter used by PL/Python,
+for example `<server-python> -m pip install PyYAML chevron`. Package installation
+and Python paths depend on the server distribution. Verify imports in PL/Python,
+because the installer's Python interpreter can differ from the server's.
+
+Native activation uses `CASCADE` to create `plpython3u` if absent. Standalone
+setup creates that extension in its installation transaction. PostgreSQL needs
+the dependency's control files and shared libraries installed on the server.
+
+| Function | Multi layout | Single layout |
+|---|---|---|
+| YAML to JSONB | `lib.yaml_to_jsonb(text)` | `cliente.lib_yaml_to_jsonb(text)` |
+| JSON text to YAML | `lib.jsonb_to_yaml(text)` | `cliente.lib_jsonb_to_yaml(text)` |
+| JSON text to YAML with flow style | `lib.jsonb_to_yaml(text, boolean)` | `cliente.lib_jsonb_to_yaml(text, boolean)` |
+| YAML file to JSONB | `lib.yamlfile_to_jsonb(text)` | `cliente.lib_yamlfile_to_jsonb(text)` |
+| Mustache rendering | `lib.jsonb_mustache_render(text, jsonb, text)` | `cliente.lib_jsonb_mustache_render(text, jsonb, text)` |
+
+`jsonb_to_yaml` accepts valid JSON text and uses `json.loads` and `yaml.safe_dump`.
+The functions return SQL NULL for SQL NULL arguments. Mustache's optional third
+argument defaults to an empty path, disabling filesystem partials. Pass an
+explicit server directory when partials are needed. File-reading functions are
+marked volatile. `yamlfile_to_jsonb` uses `pg_read_file`, which checks the caller's
+PostgreSQL permissions. Mustache partials use the server process's filesystem
+permissions through PL/Python. Functions start with
+owner-only access, consistent with core installation. Grant schema USAGE and
+function EXECUTE explicitly to authorized roles as needed.
+
+After installing the `0.3.0` server files, upgrade a native `0.2.0` installation
+with `make upgrade DBNAME=my_database`, adding `LAYOUT=single` for the single
+layout. The target creates `plpython3u` and updates governance in one transaction.
+The equivalent multi-layout SQL is:
+
+```sql
+BEGIN;
+CREATE EXTENSION IF NOT EXISTS plpython3u;
+ALTER EXTENSION pg_govlite UPDATE TO '0.3.0';
+COMMIT;
+```
+
+For single layout, use `ALTER EXTENSION pg_govlite_single UPDATE TO '0.3.0'`.
+The migration preserves the existing schema and governance data. Existing
+function-name collisions abort the migration for review.
+
+With fwa_cm `2.0.4` server files also installed, `CREATE EXTENSION fwa_cm CASCADE`
+activates `pg_govlite` (multi layout), PL/Python, PostGIS and PostGIS Raster when
+absent. Upgrade existing governance explicitly before activating fwa_cm.
 
 ## Physical names
 

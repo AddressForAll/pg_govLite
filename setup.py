@@ -150,7 +150,8 @@ def build_sql(layout, restrictive=False, master=None, *, extension=False):
                       for g in ('lib', 'gvlt', 'doc'))
     if not extension:
         pieces.append('SET LOCAL search_path = pg_catalog, ' + identifier(layout.group_schema('gvlt')) + ', public;')
-    for file in ('inst01-fw_lib.sql', 'inst02-fw_core.sql'):
+        pieces.append('CREATE EXTENSION IF NOT EXISTS plpython3u;')
+    for file in ('inst01-fw_lib.sql', 'publib-yaml-mustache.sql', 'inst02-fw_core.sql'):
         pieces.append(layout.render((ROOT / 'src' / file).read_text(encoding='utf-8')))
     pieces.append(layout.render((ROOT / 'src' / 'installation.sql').read_text(encoding='utf-8')))
     pieces.append(layout.render("INSERT INTO {{object:gvlt.installation}} (singleton, layout, target_schema, owner_oid) VALUES (true, " +
@@ -255,7 +256,7 @@ def create_extension_sql(layout, restrictive=False, master=None):
     sql = 'CREATE EXTENSION ' + EXTENSIONS[layout.mode] + ' VERSION ' + literal(extension_version())
     if layout.mode == 'single':
         sql += ' SCHEMA ' + identifier(layout.schema)
-    sql += ';'
+    sql += ' CASCADE;'
     if restrictive:
         if not master:
             raise ValueError('Restrictive governance requires an existing master login role')
