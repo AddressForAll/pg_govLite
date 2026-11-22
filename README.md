@@ -58,93 +58,107 @@ The executable SQL version of the tutorial is:
 
 It creates a deterministic local sample, so it does not download external data. The script creates the tutorial schemas and tables, applies governed tags, publishes a Gold view, registers an executable documentation example, and runs final checks with `RAISE EXCEPTION` if an expected result is missing.
 
-## Install or test
+## Install the PostgreSQL extension
 
-New installations support **multiple schemas** (default) or a **single authorized schema**, with optional restrictive governance for Silver and Gold. See [installation, permissions and policy operations](docs/INSTALLATION.md).
+Use the native extension for new installations that should support future upgrades. Choose one layout per database.
 
-Setup requires Python 3.9+, psql, PostgreSQL 15+ and DBA privileges for event triggers. It installs in one transaction, preserves unrelated objects and refuses framework collisions/reinstallation. The installation SQL files are templates rendered by setup; do not run them directly through psql.
+| Layout | Where the objects live | Extension name |
+| --- | --- | --- |
+| `multi` (default) | The framework uses multiple schemas, including `gvlt` and `lib`. | `pg_govlite` |
+| `single` | The framework uses one existing schema you choose, with prefixed object names. | `pg_govlite_single` |
 
-### Terminal quick start
+You need PostgreSQL 15 or later, Python 3.9 or later, GNU Make, and the PostgreSQL client tools. Install the package with an OS account that can write to the server's PostgreSQL extension directory. Activate it in the database with a PostgreSQL superuser, as both layouts use event triggers.
 
-The commands below use a Linux/macOS shell, Git, Python 3 and `psql`; the Makefile option also requires GNU Make. Run them in the terminal, outside the `psql` prompt. On Windows, use `python` instead of `python3` and PowerShell environment assignments such as `$env:PGDATABASE = 'my_database'` instead of `export PGDATABASE=my_database`.
+Version 0.3.0 adds YAML/JSON conversion, YAML file loading, and Mustache rendering in both layouts. Install PL/Python (`plpython3u`) for the server's PostgreSQL major version, plus PyYAML and Chevron in the Python environment used by PL/Python. Native activation uses `CASCADE` to create the PL/Python extension when absent; its server package and Python dependencies must already be installed. See [dependency and function details](docs/INSTALLATION.md#yamlmustache-and-cascading-dependencies-030).
 
-1. Download the project and enter its directory:
+### 1. Install the files on the PostgreSQL server
 
-   ```sh
-   git clone https://github.com/AddressForAll/pg_govLite.git
-   cd pg_govLite
-   ```
+Run these shell commands where the PostgreSQL server is installed. This example uses the `0.3.0` release tag once published.
 
-2. Select an existing destination database and a PostgreSQL DBA login. Replace the example values with your connection settings:
+```sh
+git clone --branch 0.3.0 https://github.com/AddressForAll/pg_govLite.git
+cd pg_govLite
+pg_config --version
+pg_config --sharedir
+make install
+```
 
-   ```sh
-   export PGHOST=localhost
-   export PGPORT=5432
-   export PGUSER=postgres
-   export PGDATABASE=my_database
-   psql -X -c '\conninfo'
-   psql -X -c '\dn'
-   ```
+`make install` copies both layouts into the server's extension directory. If there are multiple PostgreSQL installations, pass the path to the matching tool, for example `make install PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config`. For Docker, the files must be available **inside the container running PostgreSQL**, in its own `$(pg_config --sharedir)/extension` directory. Install them as part of the image or stage the package with `DESTDIR` and copy its contents into the container. A copy made only inside a running container is lost when that container is replaced.
 
-   The installer does not create the database. Use `.pgpass` or your existing credential mechanism if authentication requires a password. For a local Unix socket connection, omit `PGHOST` (or run `unset PGHOST` if it is already set).
+### 2. Connect to the target database
 
-3. Choose **one** installation method for this database.
+Run the remaining shell commands from the checkout for the same release. The target database must already exist. Set `DB_URL` to your PostgreSQL connection string, then verify the connection before creating the extension.
 
-   **Interactive standalone setup:**
+```sh
+DB_URL='postgresql://postgres@localhost:5432/my_database'
+psql -X --dbname "$DB_URL" -c '\conninfo'
+```
 
-   ```sh
-   python3 setup.py
-   ```
+Use your usual authentication, such as `.pgpass`. With SSH forwarding, use the **local forwarded port** and confirm it points to the intended PostgreSQL instance on the remote host. If `psql` already connects using your session defaults, you can instead use `DB_URL=my_database` to select the database while keeping those defaults. Pass that same value to both `psql` and `make`.
 
-   Enter `multi` for multiple schemas or `single` for one existing authorized schema. For example, answer `single`, then `public`, then `NAO` to install in `public` with restrictive governance disabled. With `multi`, there is no schema question. Answering `SIM` to restrictive governance also requires an existing master login; see [requirements and permissions](docs/INSTALLATION.md) first.
+### 3. Activate one layout
 
-   **Makefile:** activate the native extension for either layout:
+For **multiple schemas**, run:
 
-   ```sh
-   # On the PostgreSQL server, copy the extension files:
-   make install
+```sh
+make core DBURL="$DB_URL" LAYOUT=multi
+```
 
-   # From a client with psql, activate the extension in the selected database:
-   make core LAYOUT=multi RESTRICTIVE=NAO
+For **one schema**, choose an existing schema such as `cliente`. If you are using a new test database and need to create the schema first, run `psql -X --dbname "$DB_URL" -v ON_ERROR_STOP=1 -c 'CREATE SCHEMA cliente;'`.
 
-   # Single existing schema, restrictive governance disabled:
-   make core LAYOUT=single AUTHORIZED_SCHEMA=public RESTRICTIVE=NAO
-   ```
+```sh
+make core DBURL="$DB_URL" LAYOUT=single AUTHORIZED_SCHEMA=cliente
+```
 
-   **Direct non-interactive setup**, if you do not use Make:
+Restrictive governance is disabled by default. To enable it at installation, add `RESTRICTIVE=SIM MASTER_ROLE=carga_master` to the selected command. The master role must already exist and meet the [role requirements](docs/INSTALLATION.md#requirements).
 
-   ```sh
-   python3 setup.py --non-interactive --mode single --schema public --restrictive NAO
-   ```
+Once the server files are installed, you can also activate the extension directly with SQL as a superuser. Choose one command.
 
-   For subsequent releases, install the new files on the server and run `make upgrade` against each database, adding `LAYOUT=single` for single-schema installations. See the [installation and release procedure](docs/INSTALLATION.md#native-extension-releases).
+```sql
+-- Multi layout
+CREATE EXTENSION pg_govlite VERSION '0.3.0' CASCADE;
 
-4. Verify the installed framework using the same DBA connection. For `single` in `public`:
+-- Single layout
+CREATE EXTENSION pg_govlite_single WITH SCHEMA cliente VERSION '0.3.0' CASCADE;
+```
 
-   ```sh
-   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM public.gvlt_governance_check();'
-   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM public.gvlt_policy_check();'
-   psql -X -c '\dt public.gvlt_*'
-   ```
+### 4. Verify the installation
 
-   Replace `public` if you selected another authorized schema. For `multi`:
+```sh
+psql -X --dbname "$DB_URL" -c '\dx pg_govlite*'
+```
 
-   ```sh
-   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM gvlt.governance_check();'
-   psql -X -v ON_ERROR_STOP=1 -c 'SELECT * FROM gvlt.policy_check();'
-   psql -X -c '\dt gvlt.*'
-   ```
+Check that the output shows the expected extension and version. For `single`, it should also show the chosen schema. If PostgreSQL reports that the extension is unavailable, confirm that the files were installed in the PostgreSQL server or container reached by `DB_URL`.
 
-   Both check functions should return zero rows when no issues are found. The last command lists the framework tables.
+As the same DBA, run the checks for your selected layout. Each function should return zero rows when it finds no issues.
 
-### Additional Makefile commands
+```sql
+-- Multi layout
+SELECT * FROM gvlt.governance_check();
+SELECT * FROM gvlt.policy_check();
 
-* `make` shows options; `make core` and `make all` install a fresh core and run basic assertions.
-* `make core LAYOUT=single AUTHORIZED_SCHEMA=cliente RESTRICTIVE=SIM MASTER_ROLE=carga_master` selects the single layout.
-* `make render` generates reviewable SQL without connecting.
-* `make manualExamples` runs the multi-schema manual tutorial; add `LAYOUT=single AUTHORIZED_SCHEMA=cliente` for the single-schema tutorial.
-* `make usecaseExamples` aliases the selected tutorial.
-* `make test` runs offline installer checks; `make test-db` runs the integration matrix against a disposable PostgreSQL instance. The suite creates and removes only its uniquely named databases and roles.
-* `make dropDbTest` and `make assertDiff` are compatibility aliases for `make test-db`; they no longer drop a preexisting fixed test database or compare version-specific demonstration output.
+-- Single layout (replace cliente with your schema)
+SELECT * FROM cliente.gvlt_governance_check();
+SELECT * FROM cliente.gvlt_policy_check();
+```
 
-Existing databases are not migrated. pgAdmin/PostgREST adjustments are deferred to a separate delivery.
+### Upgrade an existing native installation
+
+Check out the target release, run `make install` on the PostgreSQL server again, then run the command for the layout already installed in each database.
+
+```sh
+make upgrade DBURL="$DB_URL" LAYOUT=multi
+# Or:
+make upgrade DBURL="$DB_URL" LAYOUT=single
+```
+
+The target release must include a migration path from the installed version. The single layout reuses its registered schema. Verify the version again with `\dx pg_govlite*`. Version `0.2.0` is the first native release. Databases set up with the standalone installer require a separate adoption migration before they can use native upgrades. See the [release procedure and backup limitations](docs/INSTALLATION.md#native-extension-releases).
+
+### Standalone setup and testing
+
+The standalone installer remains available through `python3 setup.py`. See the [standalone setup instructions](docs/INSTALLATION.md#install).
+
+- `make help` lists available targets.
+- `make render` generates reviewable standalone SQL without connecting.
+- `make manualExamples DBURL="$DB_URL"` runs the multi-layout tutorial. Add `LAYOUT=single AUTHORIZED_SCHEMA=cliente` for the single-layout tutorial. `make usecaseExamples` is an alias.
+- `make test` runs offline tests. Run `make test-db` against a disposable PostgreSQL instance. The suite manages its own uniquely named databases and roles. See the [native extension test setup](docs/INSTALLATION.md#examples-and-verification).
